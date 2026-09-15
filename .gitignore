@@ -6,7 +6,7 @@ dist/
 dist-ssr/
 
 # 敏感配置（不入库）
-# 摄影手册真实配置：CloudBase envId + writeToken
+# P5 真实配置：CloudBase envId + accessKey
 js/config.js
 .env
 .env.local

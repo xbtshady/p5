@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# p5 部署脚本 —— 把站点文件上传到 CloudBase 静态托管
+# P5 部署脚本 —— 把站点文件上传到 CloudBase 静态托管
 #
 # 用法：
 #   ./deploy.sh
