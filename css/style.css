@@ -17,8 +17,8 @@
   display: none;
 }
 
-/* Vue 挂载前的启动占位层，挂载完成后由 js/app.js 移除。
-   与 #app 同为深色底 + 居中，切换时不会跳动。 */
+/* Vue 挂载前的启动占位层，挂载完成后由页面脚本移除。
+   与页面同为深色底 + 居中，切换时不会跳动。 */
 .boot {
   position: fixed;
   top: 0;
@@ -34,98 +34,197 @@
   font-size: 13px;
 }
 
-html,
+html {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
-  min-height: 100%;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
-#app {
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  padding: 24px;
-}
+/* ---------- 卡片 ---------- */
 
 .card {
   width: 100%;
-  max-width: 420px;
-  padding: 28px 22px;
+  max-width: 400px;
+  padding: 32px 24px;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 16px;
+}
+
+/* ---------- 登录页 ---------- */
+
+.brand {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   text-align: center;
 }
 
-.hello {
-  margin: 0 0 20px;
-  font-size: 26px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
+.sub {
+  margin: 6px 0 28px;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: center;
 }
 
-.hello .name {
-  color: var(--accent);
-}
-
-.editor {
+.form {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.editor input {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 12px;
-  font-size: 15px;
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* 字体不小于 16px，否则 iOS Safari 聚焦时会自动放大页面 */
+input {
+  width: 100%;
+  padding: 11px 13px;
+  font-size: 16px;
+  font-family: inherit;
   color: var(--text);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 10px;
 }
 
-.editor input:focus {
+input:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-.editor button {
-  padding: 10px 16px;
-  font-size: 15px;
+input:disabled {
+  opacity: 0.6;
+}
+
+/* ---------- 按钮 ---------- */
+
+.btn {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  font-family: inherit;
   font-weight: 500;
   color: #04342c;
   background: var(--accent);
   border: none;
-  border-radius: 9px;
+  border-radius: 10px;
   cursor: pointer;
 }
 
-.editor button:disabled {
+.btn:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
-.hint {
-  margin: 12px 0 0;
-  font-size: 13px;
+.btn.ghost {
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+}
+
+.btn.ghost:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+/* ---------- 登录成功页 ---------- */
+
+.profile {
+  text-align: center;
+}
+
+/* 拿不到头像（本环境 user_metadata 里没有头像字段），用昵称首字母代替 */
+.avatar {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 600;
+  color: #04342c;
+  background: var(--accent);
+  border-radius: 50%;
+  user-select: none;
+}
+
+.nickname {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.username {
+  margin: 4px 0 24px;
+  font-size: 14px;
   color: var(--muted);
 }
 
+.meta {
+  margin: 0 0 24px;
+  border-top: 1px solid var(--border);
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  text-align: left;
+}
+
+.meta-row dt {
+  flex: none;
+  color: var(--muted);
+}
+
+.meta-row dd {
+  margin: 0;
+  min-width: 0;
+  text-align: right;
+  word-break: break-all;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+/* ---------- 通用 ---------- */
+
 .error {
-  margin: 12px 0 0;
+  margin: 0;
   font-size: 13px;
   color: var(--danger);
   word-break: break-all;
 }
 
-.foot {
+.hint {
+  margin: 12px 0 0;
   font-size: 12px;
   color: var(--muted);
 }

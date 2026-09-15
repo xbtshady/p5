@@ -20,7 +20,7 @@
 python -m http.server 5173
 ```
 
-打开 http://localhost:5173 ，应显示 `hello p5`。
+打开 http://localhost:5173 ，应看到登录页。用下面「账号」里的用户名密码登录。
 
 > 别直接双击 `index.html`——`file://` 协议会有跨域问题，必须走本地 HTTP 服务。
 

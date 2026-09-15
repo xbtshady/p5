@@ -1,14 +1,14 @@
 /**
- * Vue 3 页面逻辑 —— 0.1 版
+ * 首页（登录成功页）逻辑 —— 0.2 版
  *
- * 页面加载时从 CloudBase 读取 projectName 并显示为 "hello {projectName}"。
- * 输入框可修改并保存回 CloudBase，用来验证「写」的链路。
+ * 流程：
+ *   1. 挂载前先查会话：没登录就跳登录页
+ *   2. 已登录 → 显示用户信息 + 退出登录按钮
  *
- * 关于「刷新时会闪一下占位符」：
- *   v-cloak 只能挡到 Vue 挂载完成，挡不住挂载之后才发起的数据加载。
- *   若挂载后才请求，页面会先渲染初始值（hello …、空输入框透出 placeholder），
- *   等数据回来再替换 —— 那就是刷新时看到的闪烁。
- *   这里改为「先把数据取回来，再挂载 Vue」：v-cloak 移除时页面已是最终内容，不闪。
+ * 1.0 这个页面会变成照片流，现在先当登录成功页用。
+ *
+ * 关于「刷新时闪一下」：沿用 0.1 定下的约定 —— 先把要显示的内容全部确定好，
+ * 再 mount Vue。所以 toProfile() 在 mount 之前就把所有展示文案算成了纯字符串。
  */
 (function () {
   var boot = document.getElementById("boot");
@@ -27,52 +27,97 @@
   var ref = Vue.ref;
   var P5 = window.P5 || {};
 
-  async function bootstrap() {
-    var name = "";
-    var initError = "";
+  function pad(n) {
+    return String(n).padStart(2, "0");
+  }
 
-    try {
-      name = (await P5.getProjectName()) || "";
-    } catch (e) {
-      initError = e.message || String(e);
+  /**
+   * 把 CloudBase 的 user 对象转成页面要显示的纯文本。
+   *
+   * 实际能拿到的字段（本环境实测）：
+   *   user.id                          → 用户 ID
+   *   user.created_at                  → 注册时间（UTC，这里转本地时区显示）
+   *   user.user_metadata.nickName      → 昵称
+   *   user.user_metadata.username      → 用户名
+   *   user.user_metadata.uid           → 同 user.id
+   *   user.app_metadata.providers[]    → 登录方式
+   *
+   * 拿不到的：头像、手机号、邮箱（本环境都是空字符串）。
+   * 所以头像用昵称首字母 + 纯色底代替。
+   */
+  function toProfile(user) {
+    var meta = user.user_metadata || {};
+    var appMeta = user.app_metadata || {};
+
+    var name = meta.nickName || meta.name || meta.username || "用户";
+
+    var created = "—";
+    if (user.created_at) {
+      var d = new Date(user.created_at);
+      if (!isNaN(d.getTime())) {
+        created =
+          d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) +
+          " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+      }
     }
 
-    // 挂载前就把要显示的初始值全部确定好
-    var displayName = initError ? "?" : (name || "(未设置)");
+    var providers = appMeta.providers || (appMeta.provider ? [appMeta.provider] : []);
+
+    return {
+      name: name,
+      initial: name.trim().charAt(0).toUpperCase() || "?",
+      username: meta.username || "",
+      uid: meta.uid || user.id || "—",
+      created: created,
+      provider: providers.length ? providers.join(", ") : "—"
+    };
+  }
+
+  async function bootstrap() {
+    var user = null;
+    var loadError = "";
+
+    try {
+      user = await P5.getCurrentUser();
+    } catch (e) {
+      loadError = e.message || String(e);
+    }
+
+    if (!user) {
+      // 未登录，或会话已失效 —— 回登录页（带 ?next 以后再说，1.0 用得上）
+      location.replace("login.html");
+      return;
+    }
+
+    // 挂载前把要显示的内容全部确定好
+    var profile = toProfile(user);
 
     createApp({
       setup: function () {
-        var projectName = ref(displayName);
-        var draft = ref(name);
-        var saving = ref(false);
-        var savedAt = ref("");
-        var error = ref(initError);
+        var busy = ref(false);
+        var error = ref(loadError);
 
-        async function save() {
-          var value = draft.value.trim();
-          if (!value) return;
+        async function logout() {
+          if (busy.value) return;
 
-          saving.value = true;
+          busy.value = true;
           error.value = "";
+
           try {
-            var saved = await P5.setProjectName(value);
-            projectName.value = saved;
-            draft.value = saved;
-            savedAt.value = new Date().toLocaleTimeString();
+            await P5.signOut();
+            // 清掉本地会话后回登录页，可以换账号
+            location.replace("login.html");
           } catch (e) {
             error.value = e.message || String(e);
-          } finally {
-            saving.value = false;
+            busy.value = false;
           }
         }
 
         return {
-          projectName: projectName,
-          draft: draft,
-          saving: saving,
-          savedAt: savedAt,
+          profile: ref(profile),
+          busy: busy,
           error: error,
-          save: save
+          logout: logout
         };
       }
     }).mount("#app");

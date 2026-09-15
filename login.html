@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1115" />
+  <title>登录 · p5</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="preconnect" href="https://static.cloudbase.net" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- Vue 挂载前的启动占位层，挂载完成后由 js/login.js 移除 -->
+  <div id="boot" class="boot">载入中…</div>
+
+  <div id="app" v-cloak>
+    <main class="card">
+      <h1 class="brand">p5</h1>
+      <p class="sub">私人摄影手册</p>
+
+      <form class="form" @submit.prevent="submit">
+        <label class="field">
+          <span class="label">用户名</span>
+          <input
+            v-model.trim="username"
+            type="text"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            :disabled="busy"
+          />
+        </label>
+
+        <label class="field">
+          <span class="label">密码</span>
+          <input
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            :disabled="busy"
+          />
+        </label>
+
+        <p v-if="error" class="error">{{ error }}</p>
+
+        <button class="btn" type="submit" :disabled="busy || !username || !password">
+          {{ busy ? '登录中…' : '登录' }}
+        </button>
+      </form>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/cloudbase.js"></script>
+  <script src="js/login.js"></script>
+</body>
+</html>

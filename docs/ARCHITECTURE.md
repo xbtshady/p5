@@ -7,6 +7,9 @@
 > **前置说明**：本文档最初按 CloudBase 文档数据库（NoSQL）设计。环境开通后发现
 > 新版 CloudBase 环境自带的是 **PostgreSQL**（无文档数据库实例），因此数据层、
 > 安全模型、目录结构已按 PG 重写。发现过程见文末「附：环境实测记录」。
+>
+> **当前进度**：0.2 已完成（登录 → 登录成功页 → 退出登录），实现细节见 §5.5。
+> 0.1 的 `app_settings` 表已删除。
 
 ---
 
@@ -17,7 +20,8 @@
 | 前端 | Vue 3（CDN 引入，无构建起步） | 模板语法 ≈ Thymeleaf，对 Java 开发者零学习成本；无 npm / Vite / 打包 |
 | 后端 | CloudBase（Web 托管 + **PostgreSQL** + Storage） | 1.0 不需要 API Server，前端直连即可 |
 | 数据访问 | CloudBase JS SDK v3 `app.rdb()` | postgREST 风格查询链，非 NoSQL 的 `app.database()` |
-| 部署 | `tcb hosting deploy`（CLI） | 纯静态上传，不构建；后续可切 GitHub 自动部署 |
+| 部署 | `./deploy.sh`（内部调 `tcb hosting deploy`） | 纯静态上传，不构建；后续可切 GitHub 自动部署 |
+| 认证 | CloudBase 身份服务（用户名 + 密码），`tcb user create` 建账号 | 零资质门槛、零额外费用；前端不做注册 |
 | PWA | 手写 manifest + 主屏图标 | 1.0 只做主屏图标/全屏/手机适配，不做复杂离线缓存 |
 | 图片压缩 | browser-image-compression（CDN） | 前端压缩后再上传，省流量省存储 |
 | 数据库迁移 | `cloudbase/migrations/*.sql` + `tcb db pg migration up` | 版本化 DDL，可回放、可审计 |
@@ -184,10 +188,16 @@ CREATE POLICY photo_notes_write ON public.photo_notes
 
 | 版本 | 方案 |
 |------|------|
-| 0.1 | RLS 全放开（仅验证链路，环境是私人临时环境） |
+| 0.1 | RLS 全放开（仅验证链路；该表已在 0.2 删除，暴露面归零） |
+| 0.2 | 有登录（用户名密码），但还没有业务表；写保护策略随 `photo_notes` 在 1.0 落地 |
 | 1.0 | 读放开；写用 `write_token`：策略校验请求携带的口令，前端从 `js/config.js` 读取 |
 | 1.5 | Cloud Function BFF，前端不直连 PG |
-| 2.0 | 完整鉴权（如果届时有多端/分享需求） |
+| 2.0 | 完整鉴权（按 `auth.uid()` 隔离，如果届时有多端/分享需求） |
+
+> **0.2 到手的能力**：登录后拿到的 JWT 让请求以 `authenticated` 角色执行，
+> `auth.uid()` 可用。1.0 因此多了一个比 `write_token` 更干净的选择——
+> 直接按 `auth.uid()` 做行级隔离（给 `photo_notes` 加 `owner_id` 列）。
+> 两者不冲突：私人项目单账号，`write_token` 够用；哪天要多人用，改走 `owner_id`。
 
 > **1.0 的写保护怎么做**：RLS 里用 `auth.jwt()` 读不到自定义字段，所以做法是
 > 在 `photo_notes` 之外用一张 `app_settings` 存 `write_token`，
@@ -203,6 +213,70 @@ cloudbase/migrations/<14位UTC时间戳>_<snake_case名称>.sql
 ```
 
 应用：`tcb db pg migration up -e <envId>`
+
+### 5.5 认证实现（0.2）
+
+**登录方式**：用户名 + 密码。选它是因为零资质门槛、零额外费用，且
+CloudBase 的短信/微信登录各有前提（短信按条计费；微信登录要求微信开放平台
+「网站应用」，个人主体申请不了）。
+
+**核心调用**（`js/cloudbase.js`）：
+
+```js
+const auth = app.auth({ persistence: "local" });
+
+// 登录
+const res = await auth.signInWithPassword({ username, password });
+// ⚠️ SDK 把失败放在返回值里，不 throw —— 必须显式判 res.error
+if (res && res.error) throw new Error(...);
+
+// 查当前用户（同时触发从本地存储恢复会话）
+await auth.getLoginState();
+const s = await auth.getSession();
+const user = s?.data?.session?.user ?? null;
+
+// 退出
+await auth.signOut();
+```
+
+**会话持久化**：`persistence: "local"` 把会话写进 `localStorage`。实测写入的 key：
+
+```
+credentials_<envId>      # 会话凭证（access/refresh token）
+user_info_<envId>        # 用户信息快照
+device_id
+lang_<envId>
+```
+
+因此**刷新页面、关掉标签页再打开，登录态都还在**（已实测验证）。
+`getSession()` 是判断登录态的唯一依据；`getLoginState()` 只当"触发恢复"用，
+因为它的返回值形态在不同 SDK 版本间不一致。
+
+**登录后能拿到的用户字段**（本环境实测）：
+
+| 字段 | 值示例 | 用途 |
+|------|--------|------|
+| `user.id` | `2099787376151265282` | 用户唯一标识 |
+| `user.user_metadata.nickName` | `Vixtel` | 显示名 |
+| `user.user_metadata.username` | `vixtel` | 登录用户名 |
+| `user.user_metadata.uid` | 同 `user.id` | — |
+| `user.created_at` | `2026-09-15T09:08:17Z` | 注册时间（UTC） |
+| `user.app_metadata.providers` | `["cloudbase"]` | 登录来源 |
+
+**拿不到的**：头像、手机号、邮箱（本环境都是空字符串）。
+所以「登录成功页」的头像用**昵称首字母 + 纯色圆底**代替。
+将来接微信登录时，头像是否能拿到要重新实测——微信这几年在持续收紧用户信息授权。
+
+**账号从哪来**：前端**不做注册**。私人项目，账号由命令行创建：
+
+```bash
+tcb user create <用户名> --password <密码> --nickname <显示名> \
+  --type externalUser -e <envId>
+```
+
+**错误提示**：`js/cloudbase.js` 里 `friendly()` 把 SDK 的英文错误映射成中文
+（凭证错误统一说"用户名或密码不正确"，不区分"用户不存在/密码错"，避免账号枚举），
+同时 `console.warn` 保留原始错误供排查。
 
 ---
 
@@ -324,15 +398,18 @@ CloudBase 官方支持连接 Git 仓库。无构建项目直接部署静态文�
 无需 npm / `package.json`。三个 HTML 页面各自在 `<head>` 引入：
 
 ```html
-<!-- Vue 3（生产版全局构建） -->
-<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<!-- Vue 3（生产版全局构建）—— jsdelivr 直连最快，unpkg 会 302 跳转多耗约 1 秒 -->
+<script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
 
 <!-- 图片压缩（UMD） -->
-<script src="https://unpkg.com/browser-image-compression@2/dist/browser-image-compression.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2/dist/browser-image-compression.js"></script>
 
 <!-- CloudBase JS SDK —— 官方 CDN 地址（注意不是 unpkg） -->
 <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
 ```
+
+**Vue 必须同步加载，不能加 `defer`/`async`**：`js/*.js` 里判断 `typeof Vue === "undefined"`
+做兜底提示，顺序打乱会误报。同理，`js/config.js` 要排在 `js/cloudbase.js` 之前。
 
 > CDN 具体路径以各库官方文档为准；建议锁定版本号，避免上游更新导致行为变化。
 
