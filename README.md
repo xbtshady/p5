@@ -46,15 +46,31 @@ cloudbase/migrations/      数据库迁移（PostgreSQL）
 CLI 会连只读的 `.git` 一起扫，报 `Path has no read/write permissions` 直接中断。
 脚本的做法是先把站点文件复制到临时目录，再从那里上传。
 
-**2. `js/config.js` 不入库，换环境时从模板复制**
+**2. `js/config.js` 不入库，新机器上要自己补回来**
 
 ```bash
-cp js/config.example.js js/config.js
+curl -o js/config.js https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com/js/config.js
 ```
 
-里面两个值：`envId` 在控制台「环境 → 环境概览」，`accessKey` 在「环境 → API Key」。
+它已随站点部署上线，所以直接下载就是最新的。也可以 `cp js/config.example.js js/config.js` 手填——`envId` 在控制台「环境 → 环境概览」，`accessKey` 在「环境 → API Key」。
 
 `accessKey` 是 Publishable Key——只标识应用、本身不带权限，放前端是安全的（真正的门禁是服务端 Origin 校验 + 数据库 RLS）。但**别放 SecretKey**，那是 `service_role`，会绕过 RLS。
+
+---
+
+## 换台电脑（公司 ↔ 家里）
+
+云端的环境、数据库、线上站点都在腾讯云上，**不用重建**。新机器只要三步：
+
+```bash
+git clone https://github.com/xbtshady/p5.git D:/mycode/p5 && cd D:/mycode/p5
+curl -o js/config.js https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com/js/config.js
+npm i -g @cloudbase/cli && tcb login    # 只在需要部署时才做
+```
+
+- 第 2 步：`config.js` 不入库，但已随站点上线，下载即可（细节见上面「两件容易忘的事」）
+- 第 3 步：CLI 是全局工具，装了才有 `tcb` 命令；`tcb login` 是**账号级**授权，扫码一次即可，登录态存在用户目录、不在项目里
+- 每次 `git push` 若要求认证，用 GitHub 用户名 + PAT
 
 ---
 
