@@ -2,8 +2,9 @@
 
 > 看到好照片 → 30 秒内记下来 → 以后能快速找到 → 慢慢形成自己的摄影参考库。
 
-**当前版本：0.1（walking skeleton）** —— 只验证一件事：前端能显示 CloudBase 里存的 `projectName`，并且能改。整条「前端 → CloudBase → 部署」链路打通后，再往里填 1.0 的功能。
+**当前版本：0.1（walking skeleton）** —— 只验证一件事：前端能显示 CloudBase 里存的 `projectName`，并且能改。整条「前端 → CloudBase → 部署」链路已打通。
 
+- 线上地址：https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com
 - 产品设计：[docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md)
 - 架构说明：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
@@ -17,129 +18,139 @@ p5/
 ├── css/style.css       # 样式（手机优先）
 ├── js/
 │   ├── config.example.js   # 配置模板（入库）
-│   ├── config.js           # 真实配置（不入库，需自己创建）
-│   ├── cloudbase.js        # CloudBase 封装：读/写 projectName
+│   ├── config.js           # 真实配置 envId + accessKey（不入库，需自己创建）
+│   ├── cloudbase.js        # CloudBase 封装：匿名登录 + app.rdb() 读写
 │   └── app.js              # Vue 3 页面逻辑
-└── docs/                   # 设计文档
+├── cloudbase/
+│   └── migrations/     # PostgreSQL 版本化迁移（建表 / GRANT / RLS）
+├── deploy.sh           # 一键部署脚本
+└── docs/               # 设计文档
 ```
 
 无构建、无 npm 依赖。Vue 3 和 CloudBase SDK 都通过 CDN 引入。
 
 ---
 
-## 一、前置准备（一次性）
+## 环境现状（已开通，无需重做）
 
-### 1. 创建 CloudBase 环境
+| 项 | 值 |
+|----|-----|
+| 环境 ID | `p5-d4g6dukvb86de1377` |
+| 地域 | `ap-shanghai` |
+| 套餐 | 体验版（免费额度） |
+| 数据库 | **PostgreSQL**（实例 `pgdb-49arptm9`） |
+| 静态托管域名 | `p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com` |
+| 登录方式 | 匿名登录已开启；账号密码登录也已开启 |
 
-打开 [云开发控制台](https://console.cloud.tencent.com/tcb)，创建一个环境（按量计费，个人用基本在免费额度内）。
-
-创建完成后，在「环境 → 环境概览」复制 **环境 ID**（形如 `p5-1a2b3c4d`，不是环境名称）。
-
-### 2. 创建数据库集合
-
-控制台 →「数据库」→ 新建集合，集合名：**`settings`**
-
-### 3. 设置集合权限
-
-选中 `settings` 集合 →「权限设置」→ 选择 **「所有用户可读，所有用户可写」**。
-
-> ⚠️ 这是 0.1 为了快速验证链路的临时宽松设置。1.0 会换成 `writeToken` 软门禁方案（见架构文档第五节），届时收紧。
-
-### 4. 配置 WEB 安全域名
-
-控制台 →「环境 → 安全配置 → WEB 安全域名」，添加：
-
-- `localhost`（本地调试用）
-- 部署后 CloudBase 分配的默认域名（部署完第一步后再加也行）
-
-> 如果页面报跨域 / 权限类错误，多半是这里没配。
+数据表：`public.app_settings`（键值表，0.1 存 `projectName = p5`），已配好 GRANT + RLS 策略。
 
 ---
 
-## 二、填写配置
-
-复制配置模板并填入环境 ID：
+## 一、填写配置
 
 ```bash
 cp js/config.example.js js/config.js
 ```
 
-编辑 `js/config.js`：
+编辑 `js/config.js` 填入 `envId` 和 `accessKey`（Publishable Key）。
 
-```js
-window.APP_CONFIG = {
-  envId: "p5-1a2b3c4d",   // 换成你的环境 ID
-  region: "ap-shanghai"   // 与环境实际地域一致
-};
-```
+- `envId`：控制台「环境 → 环境概览」
+- `accessKey`：控制台「环境 → API Key」；或用 CLI 创建：
+
+  ```bash
+  tcb api tcb CreateApiKey --body '{"EnvId":"<envId>","KeyType":"publish_key"}'
+  ```
+
+> **Publishable Key 放在前端是安全的** —— 它只标识应用、本身不带权限。
+> 真正的门禁是「服务端 Origin 校验 + 数据库 RLS」。
+> 但**不要**把 API Key / SecretKey 放进来，那是 `service_role`，会绕过 RLS。
 
 `.gitignore` 已忽略 `js/config.js`，不会提交到仓库。
 
 ---
 
-## 三、本地运行
+## 二、本地运行
 
 需要起一个本地 HTTP 服务（直接双击 `index.html` 用 `file://` 打开会有跨域问题）：
 
 ```bash
-npx serve .
-# 或者
 python -m http.server 5173
+# 或
+npx serve .
 ```
 
-浏览器打开 `http://localhost:5173`，应看到 `hello (未设置)`。在输入框里填 `p5` 并保存，页面变成 `hello p5`；刷新页面确认数据已存进 CloudBase。
+浏览器打开 `http://localhost:5173`，应看到 `hello p5`。改输入框里的值 → 保存 → 刷新，值保持。
+
+> `localhost` 系列 Origin 已在环境安全域名里放行，本地调试不用额外配 CORS。
 
 ---
 
-## 四、一键部署
+## 三、部署
 
-安装 CloudBase CLI（一次性）：
+安装 CLI（一次性）：
 
 ```bash
 npm i -g @cloudbase/cli
 ```
 
-登录（一次性，会打开浏览器授权）：
+登录（一次性，浏览器授权）：
 
 ```bash
 tcb login
 ```
 
-部署（每次改动后执行）：
+部署：
 
 ```bash
-tcb hosting deploy . -e <你的环境id> --ignore "docs,.git,*.md,.gitignore,js/config.js"
+./deploy.sh
 ```
 
-> `tcb hosting deploy` 是纯上传，不跑构建。因为这个项目无构建步骤，直接上传源文件即可。
->
-> `--ignore` 排除不需要上线的文件：设计文档、git 元数据、以及**敏感的 `js/config.js`**。
+脚本会把站点文件复制到临时目录再上传（**不要**直接 `tcb hosting deploy .`，原因见脚本内注释：CLI 会连只读的 `.git` 一起扫，导致权限报错中断）。
 
-部署完成后，控制台「静态网站托管」会给出访问域名（形如 `xxx.tcloudbaseapp.com`）。把这个域名加到第 4 步的 WEB 安全域名里，然后访问验证。
+部署完 CDN 通常几分钟内刷新；要立刻确认可以用无痕窗口，或：
+
+```bash
+curl -H "Cache-Control: no-cache" https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com
+```
 
 ---
 
-## 五、验收标准
+## 四、验收标准（0.1）
 
-- [ ] 本地 `hello p5` 正常显示
-- [ ] 改输入框 → 保存 → 刷新页面，值仍然是新的
-- [ ] 部署后的线上地址同样工作
-- [ ] `js/config.js` 没有被提交到 GitHub（`git status` 看不到它）
-
-四条都过，0.1 就算通了。之后开始往里填 1.0 的页面。
+- [x] 线上地址能看到 `hello p5`
+- [x] 改输入框 → 保存 → 刷新页面，值仍然是新的
+- [x] `js/config.js` 没有被提交到 GitHub（`git status` 看不到它）
+- [x] 无关文件（`docs/`、`cloudbase/`、`.git`）没有被上传到线上
 
 ---
 
 ## 常见问题
 
-**页面显示「未配置 envId」**
-没创建 `js/config.js`，或者 `envId` 还是空字符串。
+**页面显示「未配置 envId」/「未配置 accessKey」**
+没创建 `js/config.js`，或字段还是空字符串 / 模板占位值。
 
 **页面显示「CloudBase SDK 未加载」**
 CDN 没加载出来，检查网络，或把 SDK 下载到 `js/vendor/` 本地引用。
 
-**读不到数据但也没报错**
-检查 `settings` 集合是否存在、里面是否有 `_id: 'app'` 的文档、集合权限是否正确。
+**报 `login_type_disabled`**
+环境的「匿名登录」被关掉了。控制台「登录授权 → 登录方式」重新开启，或：
 
-**报跨域或 permission denied**
-检查第 4 步的 WEB 安全域名是否包含了当前访问域名。
+```bash
+tcb api tcb ModifyLoginConfig --body '{"EnvId":"<envId>","PhoneNumberLogin":false,"EmailLogin":false,"UserNameLogin":true,"AnonymousLogin":true}'
+```
+
+注意四个开关都是**必填**，改一个也要全传，否则会被重置。
+
+**报 403 / CORS 相关错误**
+访问域名不在环境安全域名白名单里。查看和添加：
+
+```bash
+tcb cors list
+tcb cors add <domain>
+```
+
+**读不到数据但也没报错**
+检查 `public.app_settings` 表里是否有 `key = 'projectName'` 的行，以及 RLS 策略是否还在。
+
+**部署时报 `Path has no read/write permissions: ...\.git\objects\...`**
+用 `./deploy.sh`，不要直接 `tcb hosting deploy .`。

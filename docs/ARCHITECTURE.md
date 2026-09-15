@@ -4,6 +4,10 @@
 最后更新：2026-09-15
 仓库：https://github.com/xbtshady/p5
 
+> **前置说明**：本文档最初按 CloudBase 文档数据库（NoSQL）设计。环境开通后发现
+> 新版 CloudBase 环境自带的是 **PostgreSQL**（无文档数据库实例），因此数据层、
+> 安全模型、目录结构已按 PG 重写。发现过程见文末「附：环境实测记录」。
+
 ---
 
 ## 一、技术栈
@@ -11,10 +15,12 @@
 | 层 | 选型 | 理由 |
 |----|------|------|
 | 前端 | Vue 3（CDN 引入，无构建起步） | 模板语法 ≈ Thymeleaf，对 Java 开发者零学习成本；无 npm / Vite / 打包 |
-| 后端 | CloudBase（Web 托管 + Database + Storage） | 1.0 不需要 API Server，前端直连即可 |
-| 部署 | GitHub → CloudBase 自动部署 | git push 即上线，个人项目最爽的节奏 |
+| 后端 | CloudBase（Web 托管 + **PostgreSQL** + Storage） | 1.0 不需要 API Server，前端直连即可 |
+| 数据访问 | CloudBase JS SDK v3 `app.rdb()` | postgREST 风格查询链，非 NoSQL 的 `app.database()` |
+| 部署 | `tcb hosting deploy`（CLI） | 纯静态上传，不构建；后续可切 GitHub 自动部署 |
 | PWA | 手写 manifest + 主屏图标 | 1.0 只做主屏图标/全屏/手机适配，不做复杂离线缓存 |
 | 图片压缩 | browser-image-compression（CDN） | 前端压缩后再上传，省流量省存储 |
+| 数据库迁移 | `cloudbase/migrations/*.sql` + `tcb db pg migration up` | 版本化 DDL，可回放、可审计 |
 
 **为什么不用 React**：项目只有 3 个页面 + 1 个数据结构，不需要组件复用体系、复杂状态管理、前端工程化。React 的 JSX + hooks 是一套独立范式，对 Java 开发者是额外的、没有回报的心智负担。
 
@@ -36,20 +42,22 @@
         │   (Vue 3 + CDN)     │
         └──────────┬──────────┘
                    │
-            CloudBase SDK
+      CloudBase JS SDK v3
+      （匿名登录 + app.rdb()）
                    │
        ┌───────────┴───────────┐
        │                       │
        ▼                       ▼
 ┌─────────────┐         ┌─────────────┐
-│  Database   │         │   Storage   │
+│ PostgreSQL  │         │   Storage   │
 │             │         │             │
-│ PhotoNote   │         │   图片      │
+│ photo_notes │         │   图片      │
+│ RLS 策略    │         │             │
 └─────────────┘         └─────────────┘
 ```
 
 **前端负责**：页面、上传、编辑、浏览、搜索、标签筛选。
-**CloudBase 负责**：网站部署、图片存储、数据存储。
+**CloudBase 负责**：网站部署、图片存储、PG 数据存储与行级权限。
 
 ---
 
@@ -62,11 +70,11 @@ CloudBase Storage  →  返回 imageUrl
     ↓
 保存笔记（含 imageUrl）
     ↓
-CloudBase Database  →  PhotoNote 集合
+PostgreSQL  →  photo_notes 表（INSERT，经 RLS 校验）
     ↓
 读取案例
     ↓
-CloudBase Database  →  按时间倒序返回
+PostgreSQL  →  ORDER BY created_at DESC
 ```
 
 **1.5 接入 AI 后的扩展点**：
@@ -78,100 +86,123 @@ Cloud Function  ← 1.5 新增
  ↓
 AI API（OpenAI 兼容 /chat/completions）
  ↓
-分析结果  →  写入 PhotoNote.observation
-完整对话  →  写入 PhotoNote.aiThread
+分析结果  →  写入 photo_notes.observation
+完整对话  →  写入 photo_notes.ai_thread
 ```
 
 ---
 
 ## 四、数据模型
 
-### PhotoNote 集合（CloudBase Database）
+### 4.1 业务表 `photo_notes`
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `_id` | string | 自动 | CloudBase 主键 |
-| `imageUrl` | string | 是 | Storage 文件 URL |
-| `title` | string | 否 | 标题 |
-| `note` | string | 否 | 直觉 |
-| `observation` | string | 否 | 提炼 |
-| `nextAttempt` | string | 否 | 行动 |
-| `source` | string | 否 | 来源 |
-| `tags` | string[] | 否 | 标签数组（1.0 混用，1.5 拆维度） |
-| `aiThread` | object[] | 否 | AI 对话线程（1.0 预留空数组） |
-| `writeToken` | string | 是 | 安全校验字段，写入时附 |
-| `createdAt` | date | 自动 | 创建时间 |
-| `updatedAt` | date | 自动 | 更新时间 |
-
-示例文档：
-
-```json
-{
-  "_id": "auto-generated",
-  "imageUrl": "cloud://p5.xxx/photos/2026-09-15-xxx.webp",
-  "title": "低机位让我重新认识环境人像",
-  "note": "这个角度以前完全没想过。",
-  "observation": "人物位置并不特别，但低机位让建筑占据大量画面。",
-  "nextAttempt": "下次拍环境人像时尝试一次低机位。",
-  "source": "Pinterest",
-  "tags": ["低机位", "环境人像", "构图"],
-  "aiThread": [],
-  "writeToken": "<16位随机口令>",
-  "createdAt": "2026-09-15T15:00:00Z",
-  "updatedAt": "2026-09-15T15:00:00Z"
-}
+```sql
+CREATE TABLE public.photo_notes (
+  id           BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  image_url    TEXT        NOT NULL,
+  title        TEXT,
+  note         TEXT,                                  -- 直觉
+  observation  TEXT,                                  -- 提炼
+  next_attempt TEXT,                                  -- 行动
+  source       TEXT,
+  tags         TEXT[]      NOT NULL DEFAULT '{}',     -- 1.0 混用，1.5 拆维度
+  ai_thread    JSONB       NOT NULL DEFAULT '[]',     -- AI 对话线程（1.0 预留空）
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 ```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | bigint | 主键，自增 |
+| `image_url` | text | Storage 文件 URL |
+| `title` | text | 标题 |
+| `note` | text | 直觉（"这角度没想过"） |
+| `observation` | text | 提炼（外部 AI 聊完回填的要点） |
+| `next_attempt` | text | 下次尝试的行动 |
+| `source` | text | 来源 |
+| `tags` | text[] | 标签数组（1.0 混技法/题材，1.5 拆） |
+| `ai_thread` | jsonb | AI 对话线程（1.0 预留空数组） |
+| `created_at` | timestamptz | 创建时间 |
+| `updated_at` | timestamptz | 更新时间 |
+
+**命名约定**：物理列用 `snake_case`（PG 惯例）；前端 JS 里用 `camelCase`，在 `js/cloudbase.js` 这一层做映射，业务代码不感知。
+
+**标签为什么用 `text[]`**：1.0 只需要"按标签筛选"和"列出所有标签"，PG 的数组类型配合 GIN 索引足够，不必开关联表。等 1.5 真的要拆技法/题材维度、要做标签统计，再迁移成 `tech_tags` / `topic_tags` 两列或关联表。
+
+### 4.2 0.1 walking skeleton 表 `app_settings`
+
+0.1 只验证链路，用一张键值表存 `projectName`：
+
+```sql
+CREATE TABLE public.app_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+后续配置项（如写入口令）也复用这张表，加行即可。
 
 ---
 
-## 五、安全规则
+## 五、安全模型
 
-### 设计原则
+### 5.1 身份与角色
 
-- 私人项目，读可放开（只有你自己知道 URL）
-- 写锁死，避免 envId 暴露后任何人能写
+CloudBase PG 把访问者映射成 PG 角色：
 
-### Database 安全规则（PhotoNote 集合）
+| 访问者 | PG 角色 | 说明 |
+|--------|---------|------|
+| 只带 Publishable Key | `anon` | 未登录的公开访问 |
+| 匿名登录后的会话 | `authenticated` | 有 JWT，`auth.uid()` 可用 |
+| API Key / SecretKey | `service_role` | 管理面，**绕过 RLS，绝不可入前端** |
 
-```js
-{
-  "read": true,
-  "write": "doc.writeToken === '<16位随机口令>'"
-}
+**Publishable Key 可以放前端**：它只标识应用、本身不带权限，真正的门禁是「服务端 Origin 校验 + 数据库 RLS」。这和 API Key / SecretKey 是两类东西，后者只能留在服务端。
+
+### 5.2 两道门：GRANT + RLS
+
+PG 的权限是**两道独立的门**，缺一不可：
+
+1. **GRANT** —— 角色能不能碰这张表
+2. **RLS 策略** —— 能碰哪些行
+
+只做其一都会失败，且报错形态类似「权限不足」，容易误判。1.0 的标准组合：
+
+```sql
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.photo_notes TO anon, authenticated;
+ALTER TABLE public.photo_notes ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY photo_notes_select ON public.photo_notes
+  FOR SELECT TO anon, authenticated USING (true);
+
+CREATE POLICY photo_notes_write ON public.photo_notes
+  FOR INSERT TO anon, authenticated WITH CHECK (true);
 ```
 
-### 实现要点
-
-1. 生成 16 位随机口令（不要用生日/常用词）
-2. 口令放 `js/config.js`，不入 git 仓库（类比 Java 的 `application-local.yml`）
-3. 前端从 `window.APP_CONFIG.writeToken` 读取
-4. 写入 PhotoNote 时附 `writeToken` 字段
-5. 安全规则硬编码口令校验值（与 `config.js` 中的值一致）
-
-### `js/config.js` 示例
-
-```js
-window.APP_CONFIG = {
-  envId: 'your-env-id',
-  writeToken: '<16位随机口令>'
-};
-```
-
-`js/config.example.js` 是入库的模板（不含真实值）。使用时复制为 `js/config.js`，填入自己的 `envId` 和 `writeToken`。
-
-### `.gitignore` 必须包含
-
-```
-js/config.js
-```
-
-### 安全层级演进
+### 5.3 安全层级演进
 
 | 版本 | 方案 |
 |------|------|
-| 1.0 | `writeToken` 软门禁（前端 + 安全规则） |
-| 1.5 | Cloud Function BFF，前端不直连 Database |
+| 0.1 | RLS 全放开（仅验证链路，环境是私人临时环境） |
+| 1.0 | 读放开；写用 `write_token`：策略校验请求携带的口令，前端从 `js/config.js` 读取 |
+| 1.5 | Cloud Function BFF，前端不直连 PG |
 | 2.0 | 完整鉴权（如果届时有多端/分享需求） |
+
+> **1.0 的写保护怎么做**：RLS 里用 `auth.jwt()` 读不到自定义字段，所以做法是
+> 在 `photo_notes` 之外用一张 `app_settings` 存 `write_token`，
+> 用 `SECURITY DEFINER` 函数或带 `WITH CHECK` 的表达式比对，避免把口令散落在策略里。
+> 具体形态在动 1.0 写入口时再定稿。
+
+### 5.4 安全规则脚本位置
+
+DDL / GRANT / POLICY 全部走版本化迁移：
+
+```
+cloudbase/migrations/<14位UTC时间戳>_<snake_case名称>.sql
+```
+
+应用：`tcb db pg migration up -e <envId>`
 
 ---
 
@@ -188,7 +219,7 @@ js/config.js
     │
     ▼  返回 imageUrl
     │
-    ▼  存入 PhotoNote.imageUrl
+    ▼  存入 photo_notes.image_url
 ```
 
 **理由**：
@@ -197,6 +228,10 @@ js/config.js
 - 前端压缩后再上传，省流量省存储
 - 手机上压缩 1–2 秒，但加载速度提升明显
 
+> ⚠️ PG 环境的存储在 Supabase 同款模型下，**桶必须先存在**，浏览器 SDK 不能建桶。
+> 1.0 开始写上传前要先确认 Storage 桶已建好并配好 `storage.objects` 的 RLS，
+> 否则会拿到 `STORAGE_BUCKET_NOT_FOUND` / `STORAGE_PERMISSION_DENIED`。
+
 ---
 
 ## 七、项目结构
@@ -204,20 +239,23 @@ js/config.js
 ```
 p5/
 ├── docs/
-│   ├── PRODUCT-1.0.md       # 产品设计文档
-│   └── ARCHITECTURE.md      # 架构文档（本文件）
-├── index.html               # 首页（照片流）
-├── create.html              # 新增案例
-├── detail.html              # 案例详情
+│   ├── PRODUCT-1.0.md          # 产品设计文档
+│   └── ARCHITECTURE.md         # 架构文档（本文件）
+├── cloudbase/
+│   └── migrations/             # PG 版本化迁移（DDL / GRANT / RLS）
+│       └── 20260915082200_init_app_settings.sql
+├── index.html                  # 首页（照片流）；0.1 阶段是 walking skeleton
+├── create.html                 # 新增案例
+├── detail.html                 # 案例详情
 ├── css/
-│   └── style.css            # 全局样式（手机优先）
+│   └── style.css               # 全局样式（手机优先）
 ├── js/
-│   ├── config.example.js    # 配置模板（入库）
-│   ├── config.js            # 真实配置 envId + writeToken（不入库）
-│   ├── cloudbase.js         # CloudBase SDK 封装
-│   └── app.js               # Vue 实例 + 页面逻辑
-├── icons/                   # PWA 图标
-├── manifest.json            # PWA manifest
+│   ├── config.example.js       # 配置模板（入库）
+│   ├── config.js               # 真实配置 envId + accessKey（不入库）
+│   ├── cloudbase.js            # CloudBase SDK 封装（匿名登录 + app.rdb()）
+│   └── app.js                  # Vue 实例 + 页面逻辑
+├── icons/                      # PWA 图标
+├── manifest.json               # PWA manifest
 ├── .gitignore
 └── README.md
 ```
@@ -245,39 +283,39 @@ p5/
 
 ## 九、部署流程
 
-### 首次
+### 首次开通环境（已完成）
 
 ```
-GitHub Repo (github.com/xbtshady/p5)
-        │
-        ▼
-CloudBase 连接 GitHub
-        │
-        ▼
-拉取代码（纯静态，无需构建）
-        │
-        ▼
-自动部署
-        │
-        ▼
-https://你的摄影手册.cloudbase.net
+注册/登录腾讯云 → 开通 CloudBase 环境
+    ↓
+开启「匿名登录」（默认关闭，不开则 SDK 报 login_type_disabled）
+    ↓
+创建 Publishable Key（PG 环境浏览器访问必需）
+    ↓
+tcb db pg migration up -e <envId>   ← 建表 + GRANT + RLS
 ```
 
-### 后续迭代
+### 部署静态站点
 
-```
-修改代码
-   ↓
-git push
-   ↓
-GitHub
-   ↓
-CloudBase 自动拉取并部署
-   ↓
-自动上线
+```bash
+# 本地目录直接上传，纯静态不构建
+tcb hosting deploy . -e <envId>
 ```
 
-不需要每次手动上传网站。CloudBase 官方支持 Web 应用托管和 Git 仓库部署。无构建项目直接部署静态文件，构建命令可留空。
+当前环境已开通静态托管，默认域名：
+`https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com`
+
+### 后续可切的自动部署
+
+```
+修改代码 → git push → GitHub → CloudBase 拉取并部署 → 自动上线
+```
+
+CloudBase 官方支持连接 Git 仓库。无构建项目直接部署静态文件，构建命令留空。
+
+> ⚠️ **注意**：`js/config.js` 不入 git 仓库，所以纯 GitHub 自动部署拿不到配置。
+> 走自动部署时，需要把 `envId` / `accessKey` 改成构建期注入，或接受「配置只在本地部署时生效」。
+> 1.0 阶段用 CLI 部署最省事。
 
 ---
 
@@ -286,14 +324,14 @@ CloudBase 自动拉取并部署
 无需 npm / `package.json`。三个 HTML 页面各自在 `<head>` 引入：
 
 ```html
-<!-- Vue 3（生产版全局构建，可直接 script 引入） -->
+<!-- Vue 3（生产版全局构建） -->
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 
-<!-- 图片压缩（UMD，可直接 script 引入） -->
+<!-- 图片压缩（UMD） -->
 <script src="https://unpkg.com/browser-image-compression@2/dist/browser-image-compression.js"></script>
 
-<!-- CloudBase JS SDK（CDN 路径以腾讯云官方文档为准；必要时下载到本地 js/vendor/） -->
-<script src="https://unpkg.com/@cloudbase/js-sdk@2"></script>
+<!-- CloudBase JS SDK —— 官方 CDN 地址（注意不是 unpkg） -->
+<script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
 ```
 
 > CDN 具体路径以各库官方文档为准；建议锁定版本号，避免上游更新导致行为变化。
@@ -305,23 +343,60 @@ CloudBase 自动拉取并部署
 ### 1.5 接入 AI
 
 - 新增 Cloud Function：`analyzePhoto`
-- 前端调用 CF，传 `imageUrl` + 用户的"想问什么"
+- 前端调用 CF，传 `image_url` + 用户的"想问什么"
 - CF 调 OpenAI 兼容 `/chat/completions`（复用 2.0 产品的 p2.ai 配置：apiKey / baseUrl / model）
-- AI 输出写入 `PhotoNote.observation`
-- 完整对话存 `PhotoNote.aiThread`
+- AI 输出写入 `photo_notes.observation`
+- 完整对话存 `photo_notes.ai_thread`
+
+> ⚠️ 注意：匿名登录用户默认**不能**调用 AI 模型，需要单独授权该权限。
 
 ### 1.5 标签分类
 
-- `tags` 拆为 `techTags` / `topicTags` 两个数组
-- 1.0 数据迁移：按预置标签清单自动分类（构图/角度/光线 → techTags；环境人像/室内/夜景 → topicTags）
+- `tags` 拆为 `tech_tags` / `topic_tags` 两个数组
+- 迁移：按预置标签清单自动分类（构图/角度/光线 → tech_tags；环境人像/室内/夜景 → topic_tags）
 
 ### 2.0 语义搜索
 
-- Cloud Function + 向量数据库
+- **这一条换 PG 之后反而更好走**：CloudBase PG 原生支持 `pgvector`，
+  不需要额外接一个向量数据库
+- 加一列 `embedding vector(1024)`，建 HNSW 索引
 - 索引 `note` + `observation`
 - 支持"找出所有和人物与环境关系有关的照片"这类语义检索
 
 ### 2.0 BFF 鉴权
 
-- 前端不直连 Database，统一走 Cloud Function
+- 前端不直连 PG，统一走 Cloud Function
 - 完整鉴权（如果届时有多端/分享需求）
+
+---
+
+## 附：环境实测记录
+
+开通环境后实测到的事实（供后续排查参考）：
+
+| 项 | 值 |
+|----|-----|
+| envId | `p5-d4g6dukvb86de1377`（新版格式，非 `env-` 前缀） |
+| 地域 | `ap-shanghai` |
+| 套餐 | 体验版（免费额度） |
+| 环境类型 | `baas` |
+| 静态托管域名 | `p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com` |
+| 存储 Bucket | `7035-p5-d4g6dukvb86de1377-1312626975` |
+| **数据库** | **PostgreSQL 实例 `pgdb-49arptm9`（无文档数据库）** |
+| SDK 初始化 | 只传 `env` + `accessKey`，**不要写死 region**（新版环境自动解析） |
+
+**踩过的坑**：
+
+1. **匿名登录默认关闭** —— SDK 报 `login_type_disabled`（errorCode 4045）。
+   需 `ModifyLoginConfig` 开启，且四个登录开关（`AnonymousLogin` / `UserNameLogin` /
+   `PhoneNumberLogin` / `EmailLogin`）都是**必填**，改一个也要全传，否则会被重置。
+2. **没有文档数据库** —— `db.collection().doc().set()` 报 `DATABASE_COLLECTION_NOT_EXIST`，
+   提示本环境是 PG。必须改用 `app.rdb()`。
+3. **PG API 方法名和 NoSQL 不同** —— 见下表，写错了会静默失败或报奇怪错误。
+
+| ❌ NoSQL / ORM 习惯 | ✅ PG / postgREST |
+|---------------------|-------------------|
+| `.where({ field: value })` | `.match({ field: value })` 或 `.eq("field", value)` |
+| `.orderBy("f", { ascending: false })` | `.order("f", { ascending: false })` |
+| `.count()` | `.select("*", { count: "exact" })` |
+| `.offset(n)` | `.range(from, to)`（**两端都包含**） |
