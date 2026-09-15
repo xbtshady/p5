@@ -66,17 +66,10 @@ body {
 /* ---------- 登录页 ---------- */
 
 .brand {
-  margin: 0;
+  margin: 0 0 28px;
   font-size: 30px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  text-align: center;
-}
-
-.sub {
-  margin: 6px 0 28px;
-  font-size: 13px;
-  color: var(--muted);
   text-align: center;
 }
 
