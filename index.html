@@ -5,24 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#0f1115" />
   <title>p5 · 0.1</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="preconnect" href="https://static.cloudbase.net" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
+  <!-- Vue 挂载前的启动占位层，挂载完成后由 js/app.js 移除 -->
+  <div id="boot" class="boot">载入中…</div>
+
   <div id="app" v-cloak>
     <main class="card">
       <p class="hello">hello <span class="name">{{ projectName }}</span></p>
 
       <p v-if="error" class="error">{{ error }}</p>
-      <p v-else-if="loading" class="hint">读取中…</p>
 
       <div class="editor">
         <input
           v-model="draft"
           placeholder="输入 projectName"
           @keyup.enter="save"
-          :disabled="loading || saving"
+          :disabled="saving"
         />
-        <button :disabled="loading || saving || !draft" @click="save">
+        <button :disabled="saving || !draft" @click="save">
           {{ saving ? '保存中…' : '保存' }}
         </button>
       </div>
@@ -33,7 +37,7 @@
     <footer class="foot">p5 · walking skeleton 0.1</footer>
   </div>
 
-  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
   <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
   <script src="js/config.js"></script>
   <script src="js/cloudbase.js"></script>

@@ -3,69 +3,83 @@
  *
  * 页面加载时从 CloudBase 读取 projectName 并显示为 "hello {projectName}"。
  * 输入框可修改并保存回 CloudBase，用来验证「写」的链路。
+ *
+ * 关于「刷新时会闪一下占位符」：
+ *   v-cloak 只能挡到 Vue 挂载完成，挡不住挂载之后才发起的数据加载。
+ *   若挂载后才请求，页面会先渲染初始值（hello …、空输入框透出 placeholder），
+ *   等数据回来再替换 —— 那就是刷新时看到的闪烁。
+ *   这里改为「先把数据取回来，再挂载 Vue」：v-cloak 移除时页面已是最终内容，不闪。
  */
 (function () {
-  const { createApp, ref, onMounted } = Vue;
-  const { getProjectName, setProjectName } = window.P5;
+  var boot = document.getElementById("boot");
 
-  createApp({
-    setup() {
-      const projectName = ref("…");
-      const draft = ref("");
-      const loading = ref(true);
-      const saving = ref(false);
-      const error = ref("");
-      const savedAt = ref("");
+  function bootFail(msg) {
+    if (boot) boot.innerHTML = '<span class="error">' + msg + "</span>";
+  }
 
-      async function load() {
-        loading.value = true;
-        error.value = "";
-        try {
-          const name = await getProjectName();
-          if (name) {
-            projectName.value = name;
-            draft.value = name;
-          } else {
-            projectName.value = "(未设置)";
-            draft.value = "";
-          }
-        } catch (e) {
-          projectName.value = "?";
-          error.value = e.message || String(e);
-        } finally {
-          loading.value = false;
-        }
-      }
+  // CDN 偶发不可达时的兜底提示，避免永远停在「载入中…」
+  if (typeof Vue === "undefined") {
+    bootFail("Vue 加载失败，请检查网络后刷新");
+    return;
+  }
 
-      async function save() {
-        const value = draft.value.trim();
-        if (!value) return;
+  var createApp = Vue.createApp;
+  var ref = Vue.ref;
+  var P5 = window.P5 || {};
 
-        saving.value = true;
-        error.value = "";
-        try {
-          const name = await setProjectName(value);
-          projectName.value = name;
-          draft.value = name;
-          savedAt.value = new Date().toLocaleTimeString();
-        } catch (e) {
-          error.value = e.message || String(e);
-        } finally {
-          saving.value = false;
-        }
-      }
+  async function bootstrap() {
+    var name = "";
+    var initError = "";
 
-      onMounted(load);
-
-      return {
-        projectName,
-        draft,
-        loading,
-        saving,
-        error,
-        savedAt,
-        save
-      };
+    try {
+      name = (await P5.getProjectName()) || "";
+    } catch (e) {
+      initError = e.message || String(e);
     }
-  }).mount("#app");
+
+    // 挂载前就把要显示的初始值全部确定好
+    var displayName = initError ? "?" : (name || "(未设置)");
+
+    createApp({
+      setup: function () {
+        var projectName = ref(displayName);
+        var draft = ref(name);
+        var saving = ref(false);
+        var savedAt = ref("");
+        var error = ref(initError);
+
+        async function save() {
+          var value = draft.value.trim();
+          if (!value) return;
+
+          saving.value = true;
+          error.value = "";
+          try {
+            var saved = await P5.setProjectName(value);
+            projectName.value = saved;
+            draft.value = saved;
+            savedAt.value = new Date().toLocaleTimeString();
+          } catch (e) {
+            error.value = e.message || String(e);
+          } finally {
+            saving.value = false;
+          }
+        }
+
+        return {
+          projectName: projectName,
+          draft: draft,
+          saving: saving,
+          savedAt: savedAt,
+          error: error,
+          save: save
+        };
+      }
+    }).mount("#app");
+
+    // 挂载完成（v-cloak 已移除），撤掉启动占位层
+    if (boot) boot.remove();
+  }
+
+  bootstrap();
 })();

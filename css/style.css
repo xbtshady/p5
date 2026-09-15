@@ -12,8 +12,26 @@
   box-sizing: border-box;
 }
 
+/* Vue 挂载前隐藏整个应用，避免 {{ }} 插值被当纯文本渲染出来 */
 [v-cloak] {
   display: none;
+}
+
+/* Vue 挂载前的启动占位层，挂载完成后由 js/app.js 移除。
+   与 #app 同为深色底 + 居中，切换时不会跳动。 */
+.boot {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 13px;
 }
 
 html,
