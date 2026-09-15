@@ -10,15 +10,17 @@
 
 | 层 | 选型 | 理由 |
 |----|------|------|
-| 前端 | React 18 + Vite + React Router | 私人 Web App，无 SSR/SEO/复杂路由需求，Next.js 是过度工程 |
+| 前端 | Vue 3（CDN 引入，无构建起步） | 模板语法 ≈ Thymeleaf，对 Java 开发者零学习成本；无 npm / Vite / 打包 |
 | 后端 | CloudBase（Web 托管 + Database + Storage） | 1.0 不需要 API Server，前端直连即可 |
 | 部署 | GitHub → CloudBase 自动部署 | git push 即上线，个人项目最爽的节奏 |
-| PWA | Vite PWA 插件 + manifest + 主屏图标 | 1.0 只做主屏图标/全屏/手机适配，不做复杂离线缓存 |
-| 图片压缩 | browser-image-compression | 前端压缩后再上传，省流量省存储 |
+| PWA | 手写 manifest + 主屏图标 | 1.0 只做主屏图标/全屏/手机适配，不做复杂离线缓存 |
+| 图片压缩 | browser-image-compression（CDN） | 前端压缩后再上传，省流量省存储 |
 
-**不用 Next.js 的理由**：这是一个私人 Web App，没有 SSR、SEO、复杂路由这些需求。Vite + React 足够。
+**为什么不用 React**：项目只有 3 个页面 + 1 个数据结构，不需要组件复用体系、复杂状态管理、前端工程化。React 的 JSX + hooks 是一套独立范式，对 Java 开发者是额外的、没有回报的心智负担。
 
-**不用 API Server 的理由**：给个人摄影笔记项目加 Controller/Service/Database 三层结构是增加不必要的复杂度。1.0 让前端直连 CloudBase 即可。
+**为什么不用构建工具（Vite / npm / 打包）**：Vue 3 可以直接用 CDN 引入，在 HTML 的 `<script>` 里写数据和方法。不需要 npm、不需要 Vite、不需要打包产物。哪天页面真的复杂了，再平滑升级到 Vite + 单文件组件，属于渐进增强而非推倒重来。
+
+**为什么不用 API Server**：给个人摄影笔记项目加 Controller/Service/Database 三层结构是增加不必要的复杂度。1.0 让前端直连 CloudBase 即可。写惯 Spring Boot 的人容易条件反射想加后端，这里不需要。
 
 ---
 
@@ -31,7 +33,7 @@
         ┌─────────────────────┐
         │  Photography Web    │
         │   App / PWA         │
-        │  (React + Vite)     │
+        │   (Vue 3 + CDN)     │
         └──────────┬──────────┘
                    │
             CloudBase SDK
@@ -141,23 +143,26 @@ AI API（OpenAI 兼容 /chat/completions）
 ### 实现要点
 
 1. 生成 16 位随机口令（不要用生日/常用词）
-2. 口令放 `.env.local`，不入 git 仓库
-3. 前端从 `import.meta.env.VITE_WRITE_TOKEN` 读取
+2. 口令放 `js/config.js`，不入 git 仓库（类比 Java 的 `application-local.yml`）
+3. 前端从 `window.APP_CONFIG.writeToken` 读取
 4. 写入 PhotoNote 时附 `writeToken` 字段
-5. 安全规则硬编码口令校验值（与前端 env 中的值一致）
+5. 安全规则硬编码口令校验值（与 `config.js` 中的值一致）
 
-### `.env.local` 示例
+### `js/config.js` 示例
 
+```js
+window.APP_CONFIG = {
+  envId: 'your-env-id',
+  writeToken: '<16位随机口令>'
+};
 ```
-VITE_CLOUDBASE_ENV_ID=your-env-id
-VITE_WRITE_TOKEN=<16位随机口令>
-```
+
+`js/config.example.js` 是入库的模板（不含真实值）。使用时复制为 `js/config.js`，填入自己的 `envId` 和 `writeToken`。
 
 ### `.gitignore` 必须包含
 
 ```
-.env.local
-.env.*.local
+js/config.js
 ```
 
 ### 安全层级演进
@@ -201,29 +206,23 @@ p5/
 ├── docs/
 │   ├── PRODUCT-1.0.md       # 产品设计文档
 │   └── ARCHITECTURE.md      # 架构文档（本文件）
-├── src/
-│   ├── pages/
-│   │   ├── Home/             # 首页（视觉博客流）
-│   │   ├── Create/           # 新增案例
-│   │   └── Detail/           # 案例详情
-│   ├── components/
-│   │   ├── PhotoCard/        # 照片卡片
-│   │   ├── PhotoUploader/    # 上传+压缩
-│   │   ├── Tag/              # 标签组件
-│   │   └── Search/           # 搜索框
-│   ├── lib/
-│   │   └── cloudbase/        # CloudBase SDK 封装
-│   ├── App.tsx
-│   └── main.tsx
-├── public/
-│   ├── manifest.json         # PWA manifest
-│   └── icons/                # PWA 图标
-├── .env.local                # 本地密钥，不入库
+├── index.html               # 首页（照片流）
+├── create.html              # 新增案例
+├── detail.html              # 案例详情
+├── css/
+│   └── style.css            # 全局样式（手机优先）
+├── js/
+│   ├── config.example.js    # 配置模板（入库）
+│   ├── config.js            # 真实配置 envId + writeToken（不入库）
+│   ├── cloudbase.js         # CloudBase SDK 封装
+│   └── app.js               # Vue 实例 + 页面逻辑
+├── icons/                   # PWA 图标
+├── manifest.json            # PWA manifest
 ├── .gitignore
-├── index.html
-├── vite.config.ts
-└── package.json
+└── README.md
 ```
+
+**页面导航**：三个 HTML 页面共用 `js/` 下的脚本，页面间用原生 `<a href>` 跳转，详情页用 URL 参数传 id（如 `detail.html?id=xxx`）。这是 Java 开发者熟悉的多页面模型（类似 JSP 多页面），不是 SPA 前端路由。
 
 ---
 
@@ -237,6 +236,8 @@ p5/
 **1.0 不做**：
 - 复杂离线缓存
 - Service Worker 预缓存
+
+**实现方式**：手写 `manifest.json`，在 3 个 HTML 的 `<head>` 里加 `<link rel="manifest" href="/manifest.json">` 即可。不引入 PWA 构建插件。
 
 照片和数据仍走网络访问。
 
@@ -253,7 +254,7 @@ GitHub Repo (github.com/xbtshady/p5)
 CloudBase 连接 GitHub
         │
         ▼
-自动构建
+拉取代码（纯静态，无需构建）
         │
         ▼
 自动部署
@@ -271,34 +272,31 @@ git push
    ↓
 GitHub
    ↓
-CloudBase 自动构建
+CloudBase 自动拉取并部署
    ↓
 自动上线
 ```
 
-不需要每次手动上传网站。CloudBase 官方支持 Web 应用托管和 Git 仓库部署。
+不需要每次手动上传网站。CloudBase 官方支持 Web 应用托管和 Git 仓库部署。无构建项目直接部署静态文件，构建命令可留空。
 
 ---
 
-## 十、前端关键依赖
+## 十、CDN 引入清单
 
-```json
-{
-  "dependencies": {
-    "react": "^18.0.0",
-    "react-dom": "^18.0.0",
-    "react-router-dom": "^6.0.0",
-    "@cloudbase/js-sdk": "^2.0.0",
-    "browser-image-compression": "^2.0.0"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.0.0",
-    "vite": "^5.0.0",
-    "vite-plugin-pwa": "^0.17.0",
-    "typescript": "^5.0.0"
-  }
-}
+无需 npm / `package.json`。三个 HTML 页面各自在 `<head>` 引入：
+
+```html
+<!-- Vue 3（生产版全局构建，可直接 script 引入） -->
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+
+<!-- 图片压缩（UMD，可直接 script 引入） -->
+<script src="https://unpkg.com/browser-image-compression@2/dist/browser-image-compression.js"></script>
+
+<!-- CloudBase JS SDK（CDN 路径以腾讯云官方文档为准；必要时下载到本地 js/vendor/） -->
+<script src="https://unpkg.com/@cloudbase/js-sdk@2"></script>
 ```
+
+> CDN 具体路径以各库官方文档为准；建议锁定版本号，避免上游更新导致行为变化。
 
 ---
 

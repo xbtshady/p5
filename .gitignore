@@ -5,7 +5,9 @@ node_modules/
 dist/
 dist-ssr/
 
-# env (敏感，不入库)
+# 敏感配置（不入库）
+# 摄影手册真实配置：CloudBase envId + writeToken
+js/config.js
 .env
 .env.local
 .env.*.local
