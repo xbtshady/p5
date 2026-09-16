@@ -1,7 +1,10 @@
 /**
- * CloudBase 封装 —— 0.2 版（用户名密码登录）
+ * CloudBase 封装 —— 0.3 版（登录 + 照片存取）
  *
- * 职责：初始化 SDK + 登录 / 退出 / 查当前用户。
+ * 职责：
+ *   1. 初始化 SDK
+ *   2. 登录 / 退出 / 查当前用户
+ *   3. 照片：上传到私有桶、落库、列出自己的照片、换取临时访问链接
  *
  * 依赖：
  *   - cloudbase.full.js（页面通过 CDN 引入，全局变量 cloudbase）
@@ -11,15 +14,39 @@
  *   signIn(username, password)  → user          登录，失败抛异常
  *   signOut()                   → void          退出登录
  *   getCurrentUser()            → user | null   查当前登录用户（未登录返回 null）
+ *   uploadPhoto(file, ext)      → path          上传照片，返回桶内路径
+ *   createPhoto(meta)           → row           落库
+ *   listPhotos()                → rows          当前用户的照片列表
+ *   signPhotoUrls(paths)        → {path: url}   批量换临时访问链接
+ *
+ * 数据库是 PostgreSQL 模式，用 app.rdb()（postgREST 风格），不是 NoSQL 的
+ * app.database()。方法名不一样，别混：
+ *   .where({...}) → .eq('col', v) / .match({...})
+ *   .orderBy(...) → .order(...)
+ *   .count()      → .select('*', { count: 'exact' })
+ *   .offset(n)    → .range(from, to)
+ *
+ * 存储同样是 PG 模式，要用 app.storage.from('桶名').upload(...)；
+ * 旧 NoSQL 的 app.uploadFile() / app.getTempFileURL() 在这里不适用。
+ *
+ * 安全（0.3 的两层用户隔离，策略都写在迁移里）：
+ *   第一层 数据表 —— photo_notes 的 RLS 是 owner_id = auth.uid()，且只授
+ *     authenticated。所以 listPhotos() 不传、也传不了 owner_id，由数据库过滤。
+ *   第二层 照片文件 —— 桶是私有的，storage.objects 的 RLS 要求对象路径首段
+ *     等于本人 uid；读取一律走临时签名 URL，不发直链。
  *
  * 会话持久化：
  *   auth({ persistence: "local" }) 会把会话存进 localStorage，
  *   所以刷新页面、关掉标签页再打开，登录态都还在。
  */
 (function () {
+  var PHOTO_BUCKET = "photos";
+  var SIGNED_URL_TTL = 3600; // 临时链接有效期（秒）
+
   var app = null;
   var auth = null;
   var db = null;
+  var storage = null;
   var readyPromise = null;
 
   function init() {
@@ -50,11 +77,24 @@
       app = cloudbase.init(initOptions);
       auth = app.auth({ persistence: "local" });
       db = app.rdb();
+      // SDK 里 app.storage 是属性；万一某个版本做成方法，这里兼容一下
+      storage = typeof app.storage === "function" ? app.storage() : app.storage;
 
       return app;
     })();
 
     return readyPromise;
+  }
+
+  /** 统一拆 SDK 的返回值：错误统一抛，成功原样返回（调用方自己取 .data） */
+  function unwrap(res, action) {
+    if (res && res.error) {
+      var e = res.error;
+      throw new Error(
+        action + " 失败：" + (e.message || e.code || JSON.stringify(e))
+      );
+    }
+    return res;
   }
 
   /** 把 SDK 返回的英文错误转成能看懂的中文 */
@@ -124,11 +164,118 @@
     }
   }
 
+  /**
+   * 当前用户的 uid。
+   * 未登录直接抛错——绝不能让它返回 undefined 被拿去拼存储路径。
+   */
+  async function currentUid() {
+    var user = await getCurrentUser();
+    if (!user) throw new Error("登录状态已失效，请重新登录");
+    return user.id || (user.user_metadata && user.user_metadata.uid);
+  }
+
+  /**
+   * 文件名：时间戳 + 随机串。
+   * PG 模式的 upload 默认 upsert=false，重名会直接失败，所以这里必须避开重名。
+   */
+  function newFileName(ext) {
+    return (
+      Date.now().toString(36) +
+      "-" +
+      Math.random().toString(36).slice(2, 8) +
+      "." +
+      (ext || "webp")
+    );
+  }
+
+  /**
+   * 上传照片到私有桶，路径 {uid}/{文件名}。
+   * 首段的 uid 不是装饰——storage.objects 的 RLS 就按它判定归属，
+   * 换成别人的 uid 会被数据库直接拒绝。
+   */
+  async function uploadPhoto(file, ext) {
+    await init();
+
+    var uid = await currentUid();
+    var path = uid + "/" + newFileName(ext);
+
+    var res = await storage.from(PHOTO_BUCKET).upload(path, file);
+    unwrap(res, "照片上传");
+
+    return path;
+  }
+
+  /**
+   * 落库。
+   * owner_id 交给数据库默认值 auth.uid()——前端既不传，也传不了别的值。
+   */
+  async function createPhoto(meta) {
+    await init();
+
+    var res = unwrap(
+      await db.from("photo_notes").insert({
+        storage_path: meta.storagePath,
+        title: meta.title || null,
+        note: meta.note || null
+      }),
+      "保存照片"
+    );
+
+    return res.data;
+  }
+
+  /** 当前用户的照片，时间倒序。RLS 保证只会返回本人的行。 */
+  async function listPhotos() {
+    await init();
+
+    var res = unwrap(
+      await db
+        .from("photo_notes")
+        .select("id,storage_path,title,note,created_at")
+        .order("created_at", { ascending: false }),
+      "读取照片列表"
+    );
+
+    return (res && res.data) || [];
+  }
+
+  /**
+   * 批量把桶内路径换成临时访问链接。
+   * 桶是私有的，拿不到直链，所以渲染前必须先换一次。
+   * 单张失败不中断整批——留空串，由页面决定怎么兜底。
+   */
+  async function signPhotoUrls(paths) {
+    await init();
+
+    var bucket = storage.from(PHOTO_BUCKET);
+    var map = {};
+
+    await Promise.all(
+      paths.map(async function (path) {
+        try {
+          var res = await bucket.createSignedUrl(path, SIGNED_URL_TTL);
+          var url =
+            res && res.data && (res.data.fullSignedURL || res.data.signedUrl);
+          map[path] = url || "";
+        } catch (e) {
+          console.warn("[P5] 生成临时链接失败:", path, e);
+          map[path] = "";
+        }
+      })
+    );
+
+    return map;
+  }
+
   window.P5 = {
     signIn: signIn,
     signOut: signOut,
     getCurrentUser: getCurrentUser,
-    // 1.0 会用它读写 photo_notes，现在先留着
+    uploadPhoto: uploadPhoto,
+    createPhoto: createPhoto,
+    listPhotos: listPhotos,
+    signPhotoUrls: signPhotoUrls,
+    // 1.5 之后可能会直接用到
     db: function () {
       return db;
     }

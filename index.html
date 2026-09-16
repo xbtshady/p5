@@ -9,39 +9,40 @@
   <link rel="preconnect" href="https://static.cloudbase.net" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
-<body>
+<body class="page-list">
   <!-- Vue 挂载前的启动占位层，挂载完成后由 js/app.js 移除 -->
   <div id="boot" class="boot">载入中…</div>
 
   <div id="app" v-cloak>
-    <main class="card profile">
-      <div class="avatar">{{ profile.initial }}</div>
+    <header class="topbar">
+      <h1 class="topbar-brand">P5</h1>
+      <nav class="topbar-actions">
+        <a class="add-btn" href="create.html" aria-label="添加照片">＋</a>
+        <button class="text-btn" type="button" :disabled="busy" @click="logout">
+          {{ busy ? '退出中…' : '退出' }}
+        </button>
+      </nav>
+    </header>
 
-      <h1 class="nickname">{{ profile.name }}</h1>
-      <p class="username" v-if="profile.username">@{{ profile.username }}</p>
-
-      <dl class="meta">
-        <div class="meta-row">
-          <dt>用户 ID</dt>
-          <dd class="mono">{{ profile.uid }}</dd>
-        </div>
-        <div class="meta-row">
-          <dt>注册时间</dt>
-          <dd>{{ profile.created }}</dd>
-        </div>
-        <div class="meta-row">
-          <dt>登录方式</dt>
-          <dd>{{ profile.provider }}</dd>
-        </div>
-      </dl>
-
+    <main class="feed-wrap">
       <p v-if="error" class="error">{{ error }}</p>
 
-      <button class="btn ghost" :disabled="busy" @click="logout">
-        {{ busy ? '退出中…' : '退出登录' }}
-      </button>
+      <p v-if="!error && !photos.length" class="empty">
+        还没有照片。点右上角 ＋ 记下第一张。
+      </p>
 
-      <p class="hint">退出后可用其它账号登录</p>
+      <ul class="feed" v-if="photos.length">
+        <li class="shot" v-for="p in photos" :key="p.id">
+          <img v-if="p.url" :src="p.url" :alt="p.title || '照片'" loading="lazy" />
+          <div v-else class="shot-fallback">图片暂时取不到</div>
+
+          <div class="shot-body">
+            <p class="shot-title" v-if="p.title">{{ p.title }}</p>
+            <p class="shot-note" v-if="p.note">{{ p.note }}</p>
+            <p class="shot-date">{{ p.date }}</p>
+          </div>
+        </li>
+      </ul>
     </main>
   </div>
 

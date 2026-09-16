@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f1115" />
+  <title>添加 · P5</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="preconnect" href="https://static.cloudbase.net" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="page-list">
+  <!-- Vue 挂载前的启动占位层，挂载完成后由 js/create.js 移除 -->
+  <div id="boot" class="boot">载入中…</div>
+
+  <div id="app" v-cloak>
+    <header class="topbar">
+      <a class="text-btn" href="index.html">返回</a>
+      <h1 class="topbar-brand">P5</h1>
+      <span class="topbar-actions"></span>
+    </header>
+
+    <main class="feed-wrap">
+      <form class="form" @submit.prevent="submit">
+        <label class="field">
+          <span class="label">照片</span>
+          <input type="file" accept="image/*" @change="pick" :disabled="busy" />
+        </label>
+
+        <figure class="preview" v-if="previewUrl">
+          <img :src="previewUrl" alt="预览" />
+          <figcaption class="preview-note">{{ sizeText }}</figcaption>
+        </figure>
+
+        <label class="field">
+          <span class="label">标题（可选）</span>
+          <input
+            v-model.trim="title"
+            type="text"
+            :disabled="busy"
+            placeholder="一句话给它起个名"
+          />
+        </label>
+
+        <label class="field">
+          <span class="label">我为什么保存它（可选）</span>
+          <textarea
+            v-model="note"
+            rows="4"
+            :disabled="busy"
+            placeholder="哪一点让我停下来多看了一眼"
+          ></textarea>
+        </label>
+
+        <p v-if="error" class="error">{{ error }}</p>
+
+        <button class="btn" type="submit" :disabled="busy || !file">
+          {{ busy ? statusText : '保存' }}
+        </button>
+      </form>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2/dist/browser-image-compression.js"></script>
+  <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/cloudbase.js"></script>
+  <script src="js/create.js"></script>
+</body>
+</html>
