@@ -1,11 +1,17 @@
 # P5
 
-> 看到好照片 → 30 秒内记下来 → 以后能快速找到 → 慢慢形成自己的摄影参考库。
-
 线上：https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com
 
-**当前版本 0.2**：登录 → 登录成功页（显示用户信息）→ 退出登录。
-照片流、新增案例、详情页是 1.0 的内容，还没开始，见 [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md)。
+**当前版本 0.4**。已经能用的：
+
+| 版本 | 内容 |
+|------|------|
+| 0.1 | 打通 CloudBase PostgreSQL 链路（临时表已删） |
+| 0.2 | 用户名密码登录 / 退出 |
+| 0.3 | 上传照片 + 标题 + 一句话；倒序列表看历史；照片按账号隔离 |
+| 0.4 | 淡色主题 + Vant 4 组件库（点图全屏看、上传、表单） |
+
+观察 / 下次尝试 / 标签 / 来源 / 搜索 / 详情页还是 1.0 的内容，见 [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md)。
 
 ---
 
@@ -24,6 +30,15 @@ python -m http.server 5173
 打开 http://localhost:5173 ，会跳到登录页。用下面「账号」里的用户名密码登录。
 
 > 别直接双击 `index.html`——`file://` 协议会有跨域问题，必须走本地 HTTP 服务。
+
+---
+
+## 用起来是什么样
+
+- 登录页：用户名 + 密码（Vant 表单），登录成功进照片流
+- 照片流：按时间倒序，点照片**全屏看**（双指缩放、左右切换），右上角 `＋` 新增、`退出` 登出
+- 新增页：选图后**前端自动压缩**（长边 1600px、WebP，显示「3.2 MB → 420 KB」）再上传，标题和「为什么」都可留空
+- 隔离：照片存在**私有桶**里，别人拿到链接也打不开；列表只返回你自己的记录
 
 ---
 
@@ -59,17 +74,29 @@ tcb user delete <uid> -e <envId>                     # 删除（不可恢复）
 ## 结构
 
 ```
-index.html                 登录成功页（1.0 会变成照片流）
-login.html                 登录页
-css/ js/                   样式与脚本（Vue 3 + CloudBase SDK 走 CDN，无构建、无 npm）
+login.html                 登录页（入口）
+index.html                 照片流 + 全屏看图
+create.html                新增照片（选图 / 压图 / 保存）
+css/style.css              样式：主题 token + Vant 变量覆盖
 js/config.js               环境配置：envId + accessKey（已被 gitignore）
-js/cloudbase.js            CloudBase 封装（用户名密码登录 / 退出 / 查当前用户）
-js/login.js                登录页逻辑
-js/app.js                  登录成功页逻辑
+js/cloudbase.js            CloudBase 封装（登录 / 上传 / 落库 / 列表 / 临时链接）
+js/login.js  js/app.js  js/create.js   三个页面各自的逻辑
 deploy.sh                  部署脚本
 docs/                      产品与架构文档
 cloudbase/migrations/      数据库迁移（PostgreSQL）
 ```
+
+**外部依赖全部走 CDN，无 npm、无构建**：Vue 3（jsdelivr）、Vant 4、browser-image-compression、CloudBase JS SDK。
+
+**三个 HTML 里有两处不能改动的顺序**，改了会静默失效：
+
+1. Vant 的 `index.css` 必须在 `css/style.css` **之前**——样式表里有一层 `--van-*` 覆盖要压在它上面
+2. `<script>` 依次是 Vue → Vant → 压缩库 → CloudBase SDK → `js/config.js` → `js/cloudbase.js` → 页面脚本，且**不能加 `defer`/`async`**（脚本里靠 `typeof Vue === "undefined"` 做兜底提示）
+
+**写页面时的两条硬规则**（踩过，很难查）：
+
+- `van-*` 组件必须写**完整闭合标签**，`<van-field />` 会把后面所有同级组件吞成子元素，表现为「写了好几个只渲染出一个」
+- 页面脚本里 **`app.use(vant)` 一步都不能漏**，漏了不报错，组件就是渲染不出来
 
 **页面流转**：`login.html` 是入口，登录成功跳 `index.html`；`index.html` 发现没登录就跳回 `login.html`。都是原生跳转的多页面模型，不是 SPA。
 
@@ -117,6 +144,12 @@ npm i -g @cloudbase/cli && tcb login    # 只在需要部署时才做
 | 登录报 `PROVIDER_NOT_ENABLED` | 控制台「身份认证 → 登录方式」里没开「用户名密码登录」 |
 | 登录一直说用户名或密码不正确 | 用 `tcb user list` 核对用户名；密码忘了就按上面「账号」里的办法重置 |
 | 登录成功但刷新又回登录页 | `localStorage` 被清（浏览器隐私模式、手动清理） |
+| 页面上 `van-*` 组件一个都不显示，控制台还没报错 | 页面脚本漏了 `app.use(vant)` |
+| 写了几个表单字段，只渲染出一个 | 用了自闭合的 `<van-field />`，改成 `<van-field></van-field>` |
+| 改了 `--van-*` 变量不生效 | `<link>` 顺序反了，`css/style.css` 必须在 Vant 的 `index.css` 之后 |
+| 上传报 `STORAGE_BUCKET_NOT_FOUND` / `STORAGE_PERMISSION_DENIED` | `photos` 桶或 `storage.objects` 的 RLS 没建；确认迁移已 apply |
+| 列表里某张显示「图片暂时取不到」 | 临时签名链接（1 小时）过期或生成失败，刷新页面即可 |
+| 保存报错说明上传失败 | 设计如此：**上传成功才落库**，不会留下指向不存在文件的记录 |
 | 报 403 / CORS | 访问域名不在环境安全域名白名单里 |
 | 页面是旧的 | CDN 缓存，强刷 Ctrl+Shift+R，或等几分钟 |
 
@@ -124,5 +157,5 @@ npm i -g @cloudbase/cli && tcb login    # 只在需要部署时才做
 
 ## 文档
 
-- [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md) —— 1.0 要做什么、明确不做什么
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 技术选型理由、数据层、安全模型、环境实测记录
+- [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md) —— 产品定位、字段语义、已实现 / 待补的功能
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 技术选型理由、数据模型、安全模型、部署、环境实测记录
