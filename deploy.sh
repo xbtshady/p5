@@ -12,6 +12,12 @@
 #   `--ignore` 试过 `.git`、`.git/`、`.git/**` 等写法都拦不住那个预扫描。
 #   所以这里改成：只把要上线的文件复制到一个临时目录，再从那里部署。
 #
+# 关于临时目录路径：
+#   mktemp -d 给出的是 Git Bash 的虚拟路径（/tmp/tmp.xxxx），bash 自己认，
+#   但 tcb 是 Windows 原生程序 —— 它会把 `/tmp/xxx` 当成「当前盘符下的 \tmp\xxx」
+#   （在 D: 盘执行时就是 D:\tmp\xxx，那个目录不存在，报 Path does not exist）。
+#   所以交给 tcb 前用 cygpath -w 换成真实的 Windows 路径。
+#
 # 关于 js/config.js：
 #   它必须上传 —— 页面要靠里面的 envId 和 publishable key 才能连数据库。
 #   这两个值按设计就是公开的（真正的门禁是服务端 Origin 校验 + 数据库 RLS）。
@@ -47,7 +53,13 @@ done
 echo "==> 待发布文件:"
 ( cd "$STAGE" && find . -type f | sed 's|^\./|  |' )
 
+# bash 用的路径 → 交给 tcb 的 Windows 路径（见文件头「关于临时目录路径」）
+STAGE_ARG="$STAGE"
+if command -v cygpath >/dev/null 2>&1; then
+  STAGE_ARG="$(cygpath -w "$STAGE")"
+fi
+
 echo "==> 上传到环境 $ENV_ID"
-tcb hosting deploy "$STAGE" -e "$ENV_ID" --verify
+tcb hosting deploy "$STAGE_ARG" -e "$ENV_ID" --verify
 
 echo "==> 完成。访问域名见上方输出的 Deployment completed 一行。"
