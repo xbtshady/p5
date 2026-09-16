@@ -1,10 +1,11 @@
 /**
- * 首页（照片列表）逻辑 —— 0.3 版
+ * 首页（照片列表）逻辑 —— 0.5 版
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
  *   2. 取当前用户的照片（RLS 只会返回本人的行，前端不传也不该传归属条件）
  *   3. 私有桶拿不到直链，渲染前批量换成临时访问链接
+ *   4. 卡片右上角可删除：二次确认后先删行、再删桶里的文件
  *
  * 关于「刷新时闪一下」：沿用 0.1 定下的约定 —— 先把要显示的内容全部确定好，
  * 再 mount Vue。所以照片列表和临时链接都在 mount 之前就备齐了。
@@ -27,7 +28,9 @@
   var P5 = window.P5 || {};
 
   // Vant 的函数式组件挂在全局 vant 上（不是 Vue 插件的一部分）
-  var showImagePreview = (window.vant || {}).showImagePreview;
+  var vantLib = window.vant || {};
+  var showImagePreview = vantLib.showImagePreview;
+  var showConfirmDialog = vantLib.showConfirmDialog;
 
   function pad(n) {
     return String(n).padStart(2, "0");
@@ -75,6 +78,8 @@
         photos = rows.map(function (r) {
           return {
             id: r.id,
+            // 删除时要连桶里的文件一起删，所以路径必须留着
+            storagePath: r.storage_path,
             title: r.title || "",
             note: r.note || "",
             date: fmtDate(r.created_at),
@@ -90,6 +95,8 @@
 
     createApp({
       setup: function () {
+        // 渲染用的列表。删除要就地改它，所以外面那个 photos 数组只当初始数据源
+        var list = ref(photos);
         var busy = ref(false);
         var err = ref(error);
 
@@ -133,7 +140,7 @@
           var urls = [];
           var start = 0;
 
-          photos.forEach(function (p, i) {
+          list.value.forEach(function (p, i) {
             if (!p.url) return;
             if (i === index) start = urls.length;
             urls.push(p.url);
@@ -148,13 +155,53 @@
           });
         }
 
+        /**
+         * 删除一条记录。
+         *
+         * 先弹确认：删掉就没了，不给自己留后悔的余地。
+         * 确认后交给 P5.deletePhoto（先删行再删文件，两道门都由 RLS 把关），
+         * 成功了才从列表里摘掉这一条 —— 失败就原地保留并把原因显示出来。
+         */
+        async function remove(p) {
+          if (busy.value) return;
+
+          if (typeof showConfirmDialog === "function") {
+            try {
+              await showConfirmDialog({
+                title: "删除这张照片？",
+                message: "照片和记录都会删掉，无法恢复。",
+                confirmButtonText: "删除",
+                // 危险动作按全站约定用 --danger 那支红
+                confirmButtonColor: "#c0392b"
+              });
+            } catch (e) {
+              return; // 点了取消
+            }
+          }
+
+          busy.value = true;
+          err.value = "";
+
+          try {
+            await P5.deletePhoto(p.id, p.storagePath);
+            list.value = list.value.filter(function (x) {
+              return x.id !== p.id;
+            });
+          } catch (e) {
+            err.value = e.message || String(e);
+          } finally {
+            busy.value = false;
+          }
+        }
+
         return {
-          photos: ref(photos),
+          photos: list,
           busy: busy,
           error: err,
           scrolled: scrolled,
           logout: logout,
-          preview: preview
+          preview: preview,
+          remove: remove
         };
       }
     }).mount("#app");

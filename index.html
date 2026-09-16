@@ -41,6 +41,16 @@
           :key="p.id"
           :style="{ '--i': Math.min(i, 6) }"
         >
+          <!-- 删除按钮常驻在卡片右上角，压在照片上。
+               它是 <img> 的兄弟节点而不是子节点，所以点它不会连带触发全屏看图 -->
+          <button
+            class="shot-del"
+            type="button"
+            :disabled="busy"
+            :aria-label="'删除 ' + (p.title || '这张照片')"
+            @click="remove(p)"
+          >×</button>
+
           <!-- 点图全屏看：走 Vant 的 showImagePreview，自带双指缩放和左右切换 -->
           <img
             v-if="p.url"

@@ -454,6 +454,7 @@ input[type="file"]:hover::file-selector-button {
 }
 
 .shot {
+  position: relative; /* 删除按钮以它为定位参照 */
   background: var(--card);
   border-radius: 14px;
   overflow: hidden;
@@ -463,6 +464,58 @@ input[type="file"]:hover::file-selector-button {
   animation-delay: calc(var(--i, 0) * 50ms);
   transition: box-shadow var(--dur) var(--ease-io),
     transform var(--dur) var(--ease-io);
+}
+
+/* 删除按钮：压在照片右上角。
+   用半透明深底 + 白色 × 而不是白色圆钮 —— 照片颜色不可控，
+   白底在浅色照片上会直接消失，深色蒙层才稳定。
+   底色的不透明度取 0.55：浅色照片上也够看清 ×，深色照片上又不会糊成一块。 */
+.shot-del {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-family: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: #ffffff;
+  background: rgba(18, 20, 24, 0.55);
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(18, 20, 24, 0.28);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: background var(--dur) var(--ease-io),
+    transform var(--dur-fast) var(--ease-io), opacity var(--dur) var(--ease-io);
+}
+
+/* hover 只在真有鼠标的设备上生效（触屏上 hover 会「粘住」不消失） */
+@media (hover: hover) {
+  .shot-del:hover:not(:disabled) {
+    background: var(--danger);
+  }
+}
+
+.shot-del:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.shot-del:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 键盘可达：焦点圈用白色，因为按钮底下可能是任意颜色的照片 */
+.shot-del:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
 }
 
 /* 上浮只在真有鼠标的设备上生效 —— 触屏上 hover 会「粘住」不消失 */

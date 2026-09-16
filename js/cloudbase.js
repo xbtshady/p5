@@ -1,10 +1,10 @@
 /**
- * CloudBase 封装 —— 0.3 版（登录 + 照片存取）
+ * CloudBase 封装 —— 0.5 版（登录 + 照片存取 + 删除）
  *
  * 职责：
  *   1. 初始化 SDK
  *   2. 登录 / 退出 / 查当前用户
- *   3. 照片：上传到私有桶、落库、列出自己的照片、换取临时访问链接
+ *   3. 照片：上传到私有桶、落库、列出自己的照片、换取临时访问链接、删除
  *
  * 依赖：
  *   - cloudbase.full.js（页面通过 CDN 引入，全局变量 cloudbase）
@@ -18,6 +18,7 @@
  *   createPhoto(meta)           → row           落库
  *   listPhotos()                → rows          当前用户的照片列表
  *   signPhotoUrls(paths)        → {path: url}   批量换临时访问链接
+ *   deletePhoto(id, path)       → void          删除记录 + 桶里的文件（先删行再删文件）
  *
  * 数据库是 PostgreSQL 模式，用 app.rdb()（postgREST 风格），不是 NoSQL 的
  * app.database()。方法名不一样，别混：
@@ -29,11 +30,13 @@
  * 存储同样是 PG 模式，要用 app.storage.from('桶名').upload(...)；
  * 旧 NoSQL 的 app.uploadFile() / app.getTempFileURL() 在这里不适用。
  *
- * 安全（0.3 的两层用户隔离，策略都写在迁移里）：
+ * 安全（三层，策略都写在迁移里）：
  *   第一层 数据表 —— photo_notes 的 RLS 是 owner_id = auth.uid()，且只授
  *     authenticated。所以 listPhotos() 不传、也传不了 owner_id，由数据库过滤。
  *   第二层 照片文件 —— 桶是私有的，storage.objects 的 RLS 要求对象路径首段
  *     等于本人 uid；读取一律走临时签名 URL，不发直链。
+ *   第三层 删除 —— 两道门都是 DELETE 策略 + 同样的归属判据（0.5 补上）：
+ *     行只能删自己的、文件也只能删自己的。
  *
  * 会话持久化：
  *   auth({ persistence: "local" }) 会把会话存进 localStorage，
@@ -267,6 +270,40 @@
     return map;
   }
 
+  /**
+   * 删除一条记录 + 它在桶里的文件。
+   *
+   * 顺序是刻意的：**先删行，再删文件**。
+   *   - 先删行：列表立刻干净。万一文件删失败，留下的只是一个看不见的孤儿
+   *     （私有桶访问不到，也占不了多少空间）。
+   *   - 反过来先删文件的话，一旦删行失败就会留下一条指向不存在文件的坏记录，
+   *     界面上会显示成破图 —— 比孤儿文件难处理得多。
+   *
+   * 两层都由 RLS 把关：行只能删 owner_id = auth.uid() 的，
+   * 文件只能删路径首段是自己 uid 的。
+   */
+  async function deletePhoto(id, storagePath) {
+    await init();
+
+    unwrap(
+      await db.from("photo_notes").delete().eq("id", id),
+      "删除记录"
+    );
+
+    if (!storagePath) return;
+
+    try {
+      unwrap(
+        await storage.from(PHOTO_BUCKET).remove([storagePath]),
+        "删除照片文件"
+      );
+    } catch (e) {
+      // 记录已经删掉了，界面是对的。文件残留只影响空间，
+      // 不该因为这个让用户以为整次删除失败、又去删一遍。
+      console.warn("[P5] 记录已删，但照片文件删除失败（残留孤儿文件）:", storagePath, e);
+    }
+  }
+
   window.P5 = {
     signIn: signIn,
     signOut: signOut,
@@ -275,6 +312,7 @@
     createPhoto: createPhoto,
     listPhotos: listPhotos,
     signPhotoUrls: signPhotoUrls,
+    deletePhoto: deletePhoto,
     // 1.5 之后可能会直接用到
     db: function () {
       return db;
