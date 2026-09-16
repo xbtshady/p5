@@ -1,6 +1,6 @@
 # P5 架构文档
 
-版本：0.4
+版本：0.5
 最后更新：2026-09-16
 仓库：https://github.com/xbtshady/p5
 
@@ -8,9 +8,9 @@
 > 新版 CloudBase 环境自带的是 **PostgreSQL**（无文档数据库实例），因此数据层、
 > 安全模型、目录结构已按 PG 重写。发现过程见文末「附：环境实测记录」。
 >
-> **当前进度**：0.4 已完成。
+> **当前进度**：0.5 已完成。
 > 0.1 的 `app_settings` 表已删除（§4.3）；0.2 登录见 §5.5；
-> 0.3 照片表与用户隔离见 §4.1、§5.6；0.4 样式与组件库见 §8。
+> 0.3 照片表与用户隔离见 §4.1、§5.6；0.4 样式与组件库见 §8；0.5 删除见 §5.6。
 > 文档里凡标「1.0」的部分都是还没做的目标，标「已实现」的是当前线上真实行为。
 
 ---
@@ -97,6 +97,21 @@ browser-image-compression（长边 1600px、WebP、q=0.85）
  ↓
 把 storage_path 批量换成临时签名 URL（默认 1 小时）→ 渲染
 ```
+
+删除（0.5）：
+
+```
+点卡片右上角 ×
+ ↓
+确认弹窗（Vant showConfirmDialog，点取消就结束）
+ ↓
+DELETE photo_notes WHERE id = ?        ← RLS: owner_id = auth.uid()
+ ↓  行删掉，列表立刻摘掉这一条
+storage.from('photos').remove([path])  ← RLS: 路径首段 = uid
+ ↓  失败只 warn：留下孤儿文件，不影响使用
+```
+
+**为什么先删行**：反过来先删文件的话，删行一旦失败就留下指向不存在文件的记录（界面破图），比孤儿文件难处理得多。
 
 **1.5 接入 AI 后的扩展点**：
 
@@ -205,8 +220,8 @@ PG 的权限是**两道独立的门**，缺一不可：
 
 ```sql
 -- 第一道：刻意不授 anon —— 未登录连这张表都碰不到
---         也刻意不授 UPDATE / DELETE —— 0.3 不做改和删
-GRANT SELECT, INSERT ON public.photo_notes TO authenticated;
+--         DELETE 是 0.5 补上的；仍然不授 UPDATE —— 不做编辑
+GRANT SELECT, INSERT, DELETE ON public.photo_notes TO authenticated;
 
 -- 第二道：按行隔离
 ALTER TABLE public.photo_notes ENABLE ROW LEVEL SECURITY;
@@ -216,6 +231,9 @@ CREATE POLICY p5_notes_select ON public.photo_notes
 
 CREATE POLICY p5_notes_insert ON public.photo_notes
   FOR INSERT TO authenticated WITH CHECK (owner_id = auth.uid());
+
+CREATE POLICY p5_notes_delete ON public.photo_notes
+  FOR DELETE TO authenticated USING (owner_id = auth.uid());
 ```
 
 ### 5.3 安全层级演进
@@ -226,7 +244,8 @@ CREATE POLICY p5_notes_insert ON public.photo_notes
 | 0.2 | 有登录（用户名密码），尚无业务表 |
 | 0.3 | **实际落地**：`owner_id = auth.uid()` 行级隔离 + 私有桶路径隔离（两层，见 §5.6） |
 | 0.4 | 无安全变更（只改样式） |
-| 1.0 | 保持 0.3 的两层隔离；新增字段不改变策略 |
+| 0.5 | 补 `DELETE`：表加 `GRANT DELETE` + 策略，`storage.objects` 加 DELETE 策略（判据与 0.3 相同） |
+| 1.0 | 保持现有隔离；新增字段不改变策略 |
 | 1.5 | Cloud Function BFF，前端不直连 PG |
 | 2.0 | 完整鉴权（多端/分享需求出现时再谈） |
 
@@ -337,6 +356,13 @@ CREATE POLICY p5_photos_select ON storage.objects
 - `currentUid()` 未登录直接抛错，**绝不返回 `undefined`**。否则拼出来的路径是 `undefined/xxx`，会绕过意图还好说，更怕是写到别人看不清的位置。
 - `listPhotos()` 不传 `owner_id`，由数据库过滤——前端连表达"我要看别人"的能力都没有。
 - `signPhotoUrls()` 单张失败不中断整批，失败项留空串，由页面显示「图片暂时取不到」。
+- `deletePhoto(id, path)` **先删行、再删文件**：行删掉列表立刻干净，文件万一删失败只留一个看不见的孤儿；反过来先删文件的话，删行一旦失败就会留下指向不存在文件的坏记录（界面破图），比孤儿难处理得多。文件删除失败只 `console.warn`，不让整次删除报错——否则用户会以为没删掉又删一遍。
+
+**删除的权限（0.5）**：表侧 `GRANT DELETE` + `p5_notes_delete`，文件侧 `p5_photos_delete`，判据与读/写完全一致（`owner_id = auth.uid()` / 路径首段 = uid）。三层权限（读、写、删）共用同一套归属判据，不存在某一层松一档的情况。
+
+> 注意：`storage.objects` **不能直接 `DELETE FROM`** —— 平台装了 `protect_delete` 触发器，
+> 直接删会报 `Direct deletion from storage tables is not allowed. Use the Storage API instead.`。
+> 策略是给 Storage API 那条通路用的，SDK 侧对应 `app.storage.from('photos').remove([path])`。
 
 ---
 
@@ -384,16 +410,17 @@ p5/
 │   └── migrations/             # PG 版本化迁移（DDL / GRANT / RLS）
 │       ├── 20260915082200_init_app_settings.sql        # 0.1（已删表）
 │       ├── 20260915091200_drop_app_settings.sql        # 0.2
-│       └── 20260916011500_init_photo_notes.sql         # 0.3
+│       ├── 20260916011500_init_photo_notes.sql         # 0.3
+│       └── 20260916033700_add_delete_policies.sql      # 0.5
 ├── login.html                  # 登录页（入口）
-├── index.html                  # 照片流
+├── index.html                  # 照片流（点图全屏看、卡片右上角删除）
 ├── create.html                 # 新增照片
 ├── css/
 │   └── style.css               # 全局样式（主题 token + Vant 变量覆盖）
 ├── js/
 │   ├── config.example.js       # 配置模板（入库）
 │   ├── config.js               # 真实配置 envId + accessKey（不入库）
-│   ├── cloudbase.js            # CloudBase 封装（登录 / 上传 / 落库 / 列表 / 签名 URL）
+│   ├── cloudbase.js            # CloudBase 封装（登录 / 上传 / 落库 / 列表 / 签名 URL / 删除）
 │   ├── login.js                # 登录页逻辑
 │   ├── app.js                  # 照片流逻辑
 │   └── create.js               # 新增页逻辑
@@ -600,6 +627,8 @@ CloudBase 官方支持连接 Git 仓库。无构建项目直接部署静态文�
 5. **部署直接传项目根目录会失败** —— 只读的 `.git/objects` 会卡住 CLI，必须走 `./deploy.sh`。
 6. **`app.use(vant)` 漏了不报错** —— 见 §8.2 约定 2。
 7. **`<van-field />` 自闭合会吞掉同级组件** —— 见 §8.2 约定 3。
+8. **`storage.objects` 不允许直接 DELETE** —— 平台装了语句级 `protect_delete` 触发器，绕过 RLS 行过滤就报 `Direct deletion from storage tables is not allowed. Use the Storage API instead.`。所以删文件只能走 SDK 的 `storage.from('photos').remove([path])`，SQL 里的 DELETE 策略是给那条通路做判据用。
+9. **验证 RLS 别只看 `AffectedRows`** —— `tcb db execute` 会把受影响行数算到**最后一条**语句上（末尾 `ROLLBACK` 时恒为 0），看着像策略没生效。可靠写法是让被删的行自己回话：`DELETE ... WHERE id = 5 RETURNING id`，本人执行回显 `["5"]`、他人执行 `Rows: null`。
 
 | ❌ NoSQL / ORM 习惯 | ✅ PG / postgREST |
 |---------------------|-------------------|
