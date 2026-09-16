@@ -75,7 +75,9 @@
             title: r.title || "",
             note: r.note || "",
             date: fmtDate(r.created_at),
-            url: urlMap[r.storage_path] || ""
+            url: urlMap[r.storage_path] || "",
+            // 图片解码完置 true，CSS 靠它把照片淡出来
+            loaded: false
           };
         });
       } catch (e) {
@@ -87,6 +89,18 @@
       setup: function () {
         var busy = ref(false);
         var err = ref(error);
+
+        // 顶栏滚出内容时才浮出阴影（class 挂在 .topbar 上，样式在 style.css）。
+        // passive 监听 + 只在跨过阈值时赋值，避免每滚一帧都触发一次渲染
+        var scrolled = ref(false);
+
+        function onScroll() {
+          var v = window.scrollY > 4;
+          if (v !== scrolled.value) scrolled.value = v;
+        }
+
+        window.addEventListener("scroll", onScroll, { passive: true });
+        onScroll();
 
         async function logout() {
           if (busy.value) return;
@@ -108,6 +122,7 @@
           photos: ref(photos),
           busy: busy,
           error: err,
+          scrolled: scrolled,
           logout: logout
         };
       }

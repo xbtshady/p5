@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f1115" />
+  <meta name="theme-color" content="#f7f6f3" />
   <title>P5</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link rel="preconnect" href="https://static.cloudbase.net" />
@@ -14,7 +14,7 @@
   <div id="boot" class="boot">载入中…</div>
 
   <div id="app" v-cloak>
-    <header class="topbar">
+    <header class="topbar" :class="{ 'is-scrolled': scrolled }">
       <h1 class="topbar-brand">P5</h1>
       <nav class="topbar-actions">
         <a class="add-btn" href="create.html" aria-label="添加照片">＋</a>
@@ -32,8 +32,21 @@
       </p>
 
       <ul class="feed" v-if="photos.length">
-        <li class="shot" v-for="p in photos" :key="p.id">
-          <img v-if="p.url" :src="p.url" :alt="p.title || '照片'" loading="lazy" />
+        <!-- --i 给 CSS 算错峰入场延时；封顶 6 是为了第 20 张不用等 1 秒才出现 -->
+        <li
+          class="shot"
+          v-for="(p, i) in photos"
+          :key="p.id"
+          :style="{ '--i': Math.min(i, 6) }"
+        >
+          <img
+            v-if="p.url"
+            :src="p.url"
+            :alt="p.title || '照片'"
+            loading="lazy"
+            :class="{ 'is-loaded': p.loaded }"
+            @load="p.loaded = true"
+          />
           <div v-else class="shot-fallback">图片暂时取不到</div>
 
           <div class="shot-body">

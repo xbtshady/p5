@@ -1,11 +1,48 @@
+/* ============================================================================
+ * P5 样式表 —— 0.4 淡色主题
+ * ============================================================================
+ *
+ * 三条原则：
+ *   1. 照片是主角 —— 底与卡面都是中性色，不给照片染任何色调
+ *   2. 层次靠阴影，不靠边框 —— 淡色下 1px 灰边框会显脏，还会和照片抢线条
+ *   3. 动效克制 —— 只在 hover / focus / 入场三处出现，120–240ms
+ *
+ * 配色是全站唯一的来源，改主题只改 :root。
+ * 括号里是对比度，已按 WCAG 算过：正文要 ≥ 7:1，次要文字和按钮要 ≥ 4.5:1。
+ *
+ * 无障碍：文件末尾有一段 prefers-reduced-motion，系统开了「减少动态效果」
+ * 会把所有动画和过渡压到 0.001ms（保留终态，不是删掉效果）。
+ * ========================================================================== */
+
 :root {
-  --bg: #0f1115;
-  --card: #171a21;
-  --text: #e8eaf0;
-  --muted: #8b93a7;
-  --accent: #5dcaa5;
-  --danger: #e24b4a;
-  --border: rgba(255, 255, 255, 0.08);
+  /* ---------- 颜色 ---------- */
+  --bg: #f7f6f3;              /* 页面底：暖白，带一点纸感 */
+  --card: #ffffff;            /* 卡面 */
+  --skeleton: #efece6;        /* 图片尚未解码时的占位灰 */
+  --text: #1b1d21;            /* 正文（15.6:1） */
+  --muted: #6b7079;           /* 次要文字（4.6:1）—— 全站只用这两级文字色 */
+  --accent: #0a7d60;          /* 主色，薄荷绿调深（白字 5.1:1） */
+  --accent-ink: #086a51;      /* 主色按下/hover 再深一档 */
+  --accent-soft: rgba(10, 125, 96, 0.1);   /* 焦点外圈、浅底 */
+  --danger: #c0392b;          /* 错误文字（5.4:1） */
+  --border: #e6e2db;          /* 分隔线、卡片描边（配阴影用，可以很淡） */
+  --border-strong: #d6d1c8;   /* 输入框这类需要看清轮廓的边 */
+
+  /* ---------- 层次：两级阴影 ---------- */
+  --shadow-1: 0 1px 2px rgba(28, 32, 40, 0.04), 0 1px 3px rgba(28, 32, 40, 0.04);
+  --shadow-2: 0 1px 2px rgba(28, 32, 40, 0.04), 0 8px 24px rgba(28, 32, 40, 0.07);
+
+  /* ---------- 圆角阶 ---------- */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+
+  /* ---------- 动效：时长与曲线 ---------- */
+  --dur-fast: 120ms;          /* 按下回弹 */
+  --dur: 180ms;               /* hover / focus */
+  --dur-slow: 240ms;          /* 入场 */
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);      /* 入场：起步快、收尾慢 */
+  --ease-io: cubic-bezier(0.4, 0, 0.2, 1);     /* 状态变化：两头匀 */
 }
 
 * {
@@ -18,7 +55,7 @@
 }
 
 /* Vue 挂载前的启动占位层，挂载完成后由页面脚本移除。
-   与页面同为深色底 + 居中，切换时不会跳动。 */
+   与页面同底色 + 居中，切换时不会跳动。 */
 .boot {
   position: fixed;
   top: 0;
@@ -52,15 +89,42 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- 卡片 ---------- */
+/* ---------- 入场动效 ---------- */
+
+/* 从下方 8px 浮上来，只在元素出现时跑一次 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 图片/预览的显影感：从半透明浮出，而不是「啪」地跳出来 */
+@keyframes develop {
+  from {
+    opacity: 0.35;
+    transform: scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- 卡片（登录页） ---------- */
 
 .card {
   width: 100%;
   max-width: 400px;
   padding: 32px 24px;
   background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  animation: rise var(--dur-slow) var(--ease) both;
 }
 
 /* ---------- 登录页 ---------- */
@@ -97,14 +161,23 @@ input {
   font-size: 16px;
   font-family: inherit;
   color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  transition: border-color var(--dur) var(--ease-io),
+    box-shadow var(--dur) var(--ease-io);
 }
 
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+/* 焦点：主色边框 + 一圈柔光。键盘 Tab 进来同样看得见，没牺牲无障碍 */
 input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 input:disabled {
@@ -118,35 +191,61 @@ textarea {
   font-family: inherit;
   line-height: 1.6;
   color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
   resize: vertical;
+  transition: border-color var(--dur) var(--ease-io),
+    box-shadow var(--dur) var(--ease-io);
 }
 
 textarea:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 textarea:disabled {
   opacity: 0.6;
 }
 
-/* 文件选择框：各浏览器默认样式差异大，这里统一成虚线框 */
+/* 文件选择框：各浏览器默认样式差异大，统一成虚线框 + 一个像按钮的选择键 */
 input[type="file"] {
   padding: 10px 12px;
   font-size: 14px;
   color: var(--muted);
+  background: var(--skeleton);
   border-style: dashed;
+  cursor: pointer;
+}
+
+input[type="file"]::file-selector-button {
+  margin-right: 10px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-io),
+    border-color var(--dur) var(--ease-io);
+}
+
+input[type="file"]:hover::file-selector-button {
+  background: #f3f1ec;
+  border-color: var(--muted);
 }
 
 /* 选好图之后的预览 */
 .preview {
   margin: 0;
+  background: var(--skeleton);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-md);
   overflow: hidden;
+  animation: develop var(--dur-slow) var(--ease) both;
 }
 
 .preview img {
@@ -160,6 +259,7 @@ input[type="file"] {
   padding: 8px 12px;
   font-size: 12px;
   color: var(--muted);
+  background: var(--card);
   border-top: 1px solid var(--border);
 }
 
@@ -171,25 +271,42 @@ input[type="file"] {
   font-size: 16px;
   font-family: inherit;
   font-weight: 500;
-  color: #04342c;
+  color: #ffffff;
   background: var(--accent);
   border: none;
-  border-radius: 10px;
+  border-radius: var(--r-sm);
   cursor: pointer;
+  box-shadow: var(--shadow-1);
+  transition: background var(--dur) var(--ease-io),
+    box-shadow var(--dur) var(--ease-io), transform var(--dur-fast) var(--ease-io);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent-ink);
+  box-shadow: var(--shadow-2);
+}
+
+/* 按下去要有「被按到」的反馈，但只缩 1.5%，多了就显得浮夸 */
+.btn:active:not(:disabled) {
+  transform: scale(0.985);
+  box-shadow: var(--shadow-1);
 }
 
 .btn:disabled {
   opacity: 0.45;
   cursor: default;
+  box-shadow: none;
 }
 
 .btn.ghost {
   color: var(--text);
-  background: transparent;
-  border: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  box-shadow: none;
 }
 
 .btn.ghost:hover:not(:disabled) {
+  background: #f3f1ec;
   border-color: var(--muted);
 }
 
@@ -210,8 +327,19 @@ input[type="file"] {
   justify-content: space-between;
   gap: 12px;
   padding: 14px 20px;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  /* 半透明 + 毛玻璃：照片从下面滚过时不会硬生生被切断 */
+  background: rgba(247, 246, 243, 0.92);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur) var(--ease-io),
+    box-shadow var(--dur) var(--ease-io);
+}
+
+/* 滚动之后才浮出来，提示下面还有内容（由 js/app.js 挂 class） */
+.topbar.is-scrolled {
+  border-bottom-color: var(--border);
+  box-shadow: 0 1px 12px rgba(28, 32, 40, 0.05);
 }
 
 .topbar-brand {
@@ -235,10 +363,23 @@ input[type="file"] {
   justify-content: center;
   font-size: 20px;
   line-height: 1;
-  color: #04342c;
+  color: #ffffff;
   background: var(--accent);
   border-radius: 50%;
   text-decoration: none;
+  box-shadow: var(--shadow-1);
+  transition: background var(--dur) var(--ease-io),
+    box-shadow var(--dur) var(--ease-io), transform var(--dur-fast) var(--ease-io);
+}
+
+.add-btn:hover {
+  background: var(--accent-ink);
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
+}
+
+.add-btn:active {
+  transform: scale(0.94);
 }
 
 .text-btn {
@@ -246,20 +387,35 @@ input[type="file"] {
   font-size: 13px;
   font-family: inherit;
   color: var(--muted);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
   cursor: pointer;
+  transition: color var(--dur) var(--ease-io),
+    background var(--dur) var(--ease-io), border-color var(--dur) var(--ease-io),
+    transform var(--dur-fast) var(--ease-io);
 }
 
 .text-btn:hover:not(:disabled) {
   color: var(--text);
+  background: #f3f1ec;
   border-color: var(--muted);
+}
+
+.text-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .text-btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* 键盘可达：鼠标用户看不到，Tab 进来才出现 */
+.add-btn:focus-visible,
+.text-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .feed-wrap {
@@ -273,6 +429,19 @@ input[type="file"] {
   font-size: 14px;
   color: var(--muted);
   text-align: center;
+  animation: rise var(--dur-slow) var(--ease) both;
+}
+
+/* 空状态给个「空相框」，比干巴巴一行字好一些 */
+.empty::before {
+  content: "";
+  display: block;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  background: var(--card);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--r-md);
 }
 
 .feed {
@@ -286,15 +455,35 @@ input[type="file"] {
 
 .shot {
   background: var(--card);
-  border: 1px solid var(--border);
   border-radius: 14px;
   overflow: hidden;
+  box-shadow: var(--shadow-1);
+  animation: rise var(--dur-slow) var(--ease) both;
+  /* 错峰入场：第 n 张晚 50ms 出发，由模板传 --i（上限 6，不然后面要等） */
+  animation-delay: calc(var(--i, 0) * 50ms);
+  transition: box-shadow var(--dur) var(--ease-io),
+    transform var(--dur) var(--ease-io);
+}
+
+/* 上浮只在真有鼠标的设备上生效 —— 触屏上 hover 会「粘住」不消失 */
+@media (hover: hover) {
+  .shot:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-2);
+  }
 }
 
 .shot img {
   display: block;
   width: 100%;
   height: auto;
+  background: var(--skeleton);
+}
+
+/* 图片解码完才显影（is-loaded 由模板在 load 事件里挂上）。
+   从 0.35 开始而不是 0：起点全透明会在那一帧闪白底 */
+.shot img.is-loaded {
+  animation: develop var(--dur-slow) var(--ease) both;
 }
 
 /* 临时链接偶尔会取不到（过期/策略拒绝），给个明确的占位而不是破图 */
@@ -303,7 +492,7 @@ input[type="file"] {
   font-size: 13px;
   color: var(--muted);
   text-align: center;
-  background: var(--bg);
+  background: var(--skeleton);
 }
 
 .shot-body {
@@ -328,6 +517,7 @@ input[type="file"] {
   margin: 8px 0 0;
   font-size: 12px;
   color: var(--muted);
+  letter-spacing: 0.01em;
 }
 
 /* ---------- 通用 ---------- */
@@ -337,4 +527,22 @@ input[type="file"] {
   font-size: 13px;
   color: var(--danger);
   word-break: break-all;
+}
+
+/* ---------- 无障碍：尊重系统的「减少动态效果」 ---------- */
+
+/* 压到 0.001ms 而不是删掉动画：保留了终态，元素不会停在透明或位移中途 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .shot:hover {
+    transform: none;
+  }
 }
