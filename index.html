@@ -7,6 +7,8 @@
   <title>P5</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link rel="preconnect" href="https://static.cloudbase.net" />
+  <!-- Vant 的样式必须排在 css/style.css 之前：style.css 里有一层 --van-* 覆盖要压在它上面 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vant@4/lib/index.css" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body class="page-list">
@@ -39,6 +41,7 @@
           :key="p.id"
           :style="{ '--i': Math.min(i, 6) }"
         >
+          <!-- 点图全屏看：走 Vant 的 showImagePreview，自带双指缩放和左右切换 -->
           <img
             v-if="p.url"
             :src="p.url"
@@ -46,6 +49,7 @@
             loading="lazy"
             :class="{ 'is-loaded': p.loaded }"
             @load="p.loaded = true"
+            @click="preview(i)"
           />
           <div v-else class="shot-fallback">图片暂时取不到</div>
 
@@ -60,6 +64,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vant@4/lib/vant.min.js"></script>
   <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
   <script src="js/config.js"></script>
   <script src="js/cloudbase.js"></script>

@@ -1,14 +1,18 @@
 /**
- * 新增照片页逻辑 —— 0.3 版
+ * 新增照片页逻辑 —— 0.4 版（表单换成 Vant）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
- *   2. 选图 → 前端压缩（长边 1600px、WebP）→ 预览
+ *   2. 选图 → 前端压缩（长边 1600px、WebP）→ 缩略图 + 体积对照
  *   3. 提交 → 上传到私有桶 {uid}/xxx → 落库 → 回列表
  *
- * 两条硬约定：
+ * 三条硬约定：
  *   - 上传失败绝不落库。宁可报错让用户重试，也不要留下一条指向不存在文件的记录。
  *   - 失败原因一律显示出来，不静默吞掉。
+ *   - ⚠️ 页面上所有 van-* 组件必须写完整闭合标签（<van-field></van-field>）。
+ *     HTML 不认自定义标签的自闭合，写成 <van-field /> 会把后面所有同级组件
+ *     吞成它的子元素，表现为「写了好几个只渲染出一个」。原生 void 元素
+ *     （img / input）不受影响。
  */
 (function () {
   var boot = document.getElementById("boot");
@@ -20,6 +24,10 @@
   // CDN 偶发不可达时的兜底提示，避免永远停在「载入中…」
   if (typeof Vue === "undefined") {
     bootFail("Vue 加载失败，请检查网络后刷新");
+    return;
+  }
+  if (typeof vant === "undefined") {
+    bootFail("组件库加载失败，请检查网络后刷新");
     return;
   }
   if (typeof imageCompression === "undefined") {
@@ -63,9 +71,12 @@
       return;
     }
 
-    createApp({
+    var app = createApp({
       setup: function () {
-        var file = ref(null);
+        // van-uploader 自己管的列表（负责显示缩略图）
+        var files = ref([]);
+        // 压缩之后、真正要传上桶的那一份
+        var upload = ref(null);
         var previewUrl = ref("");
         var sizeText = ref("");
         var title = ref("");
@@ -74,8 +85,18 @@
         var statusText = ref("保存中…");
         var err = ref(error);
 
-        async function pick(e) {
-          var picked = e.target.files && e.target.files[0];
+        /**
+         * 选完图（van-uploader 的 after-read）：
+         * 压缩 → 记下要上传的文件 → 给缩略图换上压缩后的图。
+         *
+         * 为什么要把 entry.content 清掉：Vant 读出文件后会把原图 base64 塞进
+         * content 当预览，优先级是 url > content。不清掉的话，缩略图显示的是
+         * 原图，而实际上传的是压缩后的，两回事。
+         */
+        async function onRead(item) {
+          // max-count=1 时是单个对象，保险起见兼容数组
+          var entry = Array.isArray(item) ? item[0] : item;
+          var picked = entry && entry.file;
           if (!picked) return;
 
           err.value = "";
@@ -102,18 +123,34 @@
             }
 
             if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
-            file.value = out;
+
+            upload.value = out;
             previewUrl.value = URL.createObjectURL(out);
             sizeText.value = fmtSize(picked.size) + " → " + fmtSize(out.size);
+
+            entry.url = previewUrl.value;
+            entry.content = "";
           } catch (e2) {
-            file.value = null;
+            upload.value = null;
             previewUrl.value = "";
             sizeText.value = "";
             err.value = e2.message || String(e2);
+            // 不是图片就从上传框里撤掉，别留着让人以为选好了
+            files.value = [];
           } finally {
             busy.value = false;
             statusText.value = "保存中…";
           }
+        }
+
+        /** 删掉已选的图（van-uploader 的 after-delete） */
+        function onDelete() {
+          if (previewUrl.value) URL.revokeObjectURL(previewUrl.value);
+          upload.value = null;
+          previewUrl.value = "";
+          sizeText.value = "";
+          err.value = "";
+          return true;
         }
 
         async function submit() {
@@ -124,9 +161,9 @@
           err.value = "";
 
           try {
-            if (!file.value) throw new Error("还没选照片");
+            if (!upload.value) throw new Error("还没选照片");
 
-            var path = await P5.uploadPhoto(file.value, extOf(file.value));
+            var path = await P5.uploadPhoto(upload.value, extOf(upload.value));
 
             // 顺序很重要：上传成功了才落库。
             // 反过来的话，上传一旦失败就会留下一条指向不存在文件的记录。
@@ -146,7 +183,8 @@
         }
 
         return {
-          file: file,
+          files: files,
+          file: upload,
           previewUrl: previewUrl,
           sizeText: sizeText,
           title: title,
@@ -154,11 +192,17 @@
           busy: busy,
           statusText: statusText,
           error: err,
-          pick: pick,
+          onRead: onRead,
+          onDelete: onDelete,
           submit: submit
         };
       }
-    }).mount("#app");
+    });
+
+    // 注册 Vant 组件。⚠️ 漏掉这步**不会报错** —— Vue 只会把 van-* 当成未识别的
+    // 自定义标签原样留在 DOM 里：页面「什么都没显示」，控制台却干干净净，很难查。
+    app.use(vant);
+    app.mount("#app");
 
     // 挂载完成（v-cloak 已移除），撤掉启动占位层
     if (boot) boot.remove();

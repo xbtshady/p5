@@ -546,3 +546,95 @@ input[type="file"]:hover::file-selector-button {
     transform: none;
   }
 }
+
+/* ============================================================================
+ * Vant 主题对齐 —— 0.4
+ * ============================================================================
+ *
+ * Vant 靠 CSS 变量做主题：改主色只动 --van-primary-color 一个变量，
+ * 不像 Element Plus 那样要同步改 8 档派生色阶（light-3/5/7/8/9、dark-2、rgb）。
+ *
+ * 这里把 Vant 的语义色全部指回本文件 :root 的变量，全站配色仍只有一个来源，
+ * 以后换主题只改上面那一处。
+ *
+ * ⚠️ 前提：本文件必须在 Vant 的 index.css **之后**加载（见各 HTML 的 link 顺序），
+ * 否则这里的 :root 会先被定义、再被 Vant 的默认值盖掉。
+ * ========================================================================== */
+
+:root {
+  --van-primary-color: var(--accent);
+  --van-danger-color: var(--danger);
+  --van-success-color: var(--accent);
+  --van-warning-color: var(--accent);
+
+  --van-background: var(--bg);
+  --van-background-2: var(--card);
+  --van-background-3: var(--card);
+
+  --van-text-color: var(--text);
+  --van-text-color-2: var(--muted);
+  --van-text-color-3: var(--muted);
+  --van-text-color-4: var(--muted);
+
+  --van-border-color: var(--border);
+  --van-radius-sm: var(--r-sm);
+  --van-radius-md: var(--r-sm);
+  --van-radius-lg: var(--r-md);
+
+  /* 顶部导航：交给我们自己的 .topbar 控制高度与底色，避免两套顶栏打架 */
+  --van-nav-bar-background: transparent;
+  --van-nav-bar-title-text-color: var(--text);
+  --van-nav-bar-icon-color: var(--muted);
+  --van-nav-bar-text-color: var(--accent);
+
+  /* 表单字段：字号对齐我们的 15px，内边距交给我们控制 */
+  --van-cell-font-size: 15px;
+  --van-cell-vertical-padding: 12px;
+  --van-cell-horizontal-padding: 14px;
+  --van-field-placeholder-text-color: var(--muted);
+  --van-field-input-text-color: var(--text);
+
+  /* 上传：正方形，跟我们的圆角阶一致。
+     112px 而不是 Vant 默认的 80 —— 照片应用里它是主角，不能只有指甲盖大 */
+  --van-uploader-size: 112px;
+  --van-uploader-radius: var(--r-md);
+}
+
+/* 压缩前后的体积对照。单独用时不要 .preview-note 那层白底，会显得像一块多余的输入框 */
+.size-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Vant 的输入控件默认继承不了我们的字族，显式接上 */
+.van-field__control,
+.van-button,
+.van-uploader {
+  font-family: inherit;
+}
+
+/* 卡片里的 Vant 组件不吃自己那套 16px 外边距，交给外层 .feed-wrap 控制 */
+.vant-block .van-cell-group--inset {
+  margin: 0;
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+/* 上传区：Vant 默认那块灰底太实，压淡一点，别跟照片抢眼 */
+.van-uploader__upload {
+  background: var(--skeleton);
+  border: 1px dashed var(--border-strong);
+  transition: border-color var(--dur) var(--ease-io),
+    background var(--dur) var(--ease-io);
+}
+
+.van-uploader__upload:hover {
+  background: #f3f1ec;
+  border-color: var(--muted);
+}
+
+/* Vant 的图片预览遮罩给个不透明的深底，照片在白底上不会发灰 */
+.van-image-preview__overlay {
+  background: rgba(18, 20, 24, 0.94);
+}

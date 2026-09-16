@@ -20,6 +20,10 @@
     bootFail("Vue 加载失败，请检查网络后刷新");
     return;
   }
+  if (typeof vant === "undefined") {
+    bootFail("组件库加载失败，请检查网络后刷新");
+    return;
+  }
 
   var createApp = Vue.createApp;
   var ref = Vue.ref;
@@ -41,7 +45,7 @@
       return;
     }
 
-    createApp({
+    var app = createApp({
       setup: function () {
         var username = ref("");
         var password = ref("");
@@ -72,7 +76,12 @@
           submit: submit
         };
       }
-    }).mount("#app");
+    });
+
+    // 注册 Vant 组件。⚠️ 漏掉这步**不会报错** —— Vue 只会把 van-* 当成未识别的
+    // 自定义标签原样留在 DOM 里：页面「什么都没显示」，控制台却干干净净，很难查。
+    app.use(vant);
+    app.mount("#app");
 
     // 挂载完成（v-cloak 已移除），撤掉启动占位层
     if (boot) boot.remove();

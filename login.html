@@ -7,6 +7,8 @@
   <title>登录 · P5</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link rel="preconnect" href="https://static.cloudbase.net" />
+  <!-- Vant 的样式必须排在 css/style.css 之前：style.css 里有一层 --van-* 覆盖要压在它上面 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vant@4/lib/index.css" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
@@ -18,38 +20,41 @@
       <h1 class="brand">P5</h1>
 
       <form class="form" @submit.prevent="submit">
-        <label class="field">
-          <span class="label">用户名</span>
-          <input
-            v-model.trim="username"
-            type="text"
-            autocomplete="username"
-            autocapitalize="none"
-            spellcheck="false"
-            :disabled="busy"
-          />
-        </label>
-
-        <label class="field">
-          <span class="label">密码</span>
-          <input
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
-            :disabled="busy"
-          />
-        </label>
+        <div class="vant-block">
+          <van-cell-group inset>
+            <van-field
+              v-model.trim="username"
+              label="用户名"
+              autocomplete="username"
+              autocapitalize="none"
+              spellcheck="false"
+              :disabled="busy"
+            ></van-field>
+            <van-field
+              v-model="password"
+              type="password"
+              label="密码"
+              autocomplete="current-password"
+              :disabled="busy"
+            ></van-field>
+          </van-cell-group>
+        </div>
 
         <p v-if="error" class="error">{{ error }}</p>
 
-        <button class="btn" type="submit" :disabled="busy || !username || !password">
-          {{ busy ? '登录中…' : '登录' }}
-        </button>
+        <van-button
+          type="primary"
+          block
+          round
+          native-type="submit"
+          :disabled="busy || !username || !password"
+        >{{ busy ? '登录中…' : '登录' }}</van-button>
       </form>
     </main>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vant@4/lib/vant.min.js"></script>
   <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
   <script src="js/config.js"></script>
   <script src="js/cloudbase.js"></script>

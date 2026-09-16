@@ -7,6 +7,8 @@
   <title>添加 · P5</title>
   <link rel="preconnect" href="https://cdn.jsdelivr.net" />
   <link rel="preconnect" href="https://static.cloudbase.net" />
+  <!-- Vant 的样式必须排在 css/style.css 之前：style.css 里有一层 --van-* 覆盖要压在它上面 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vant@4/lib/index.css" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body class="page-list">
@@ -22,46 +24,52 @@
 
     <main class="feed-wrap">
       <form class="form" @submit.prevent="submit">
-        <label class="field">
+        <div class="field">
           <span class="label">照片</span>
-          <input type="file" accept="image/*" @change="pick" :disabled="busy" />
-        </label>
-
-        <figure class="preview" v-if="previewUrl">
-          <img :src="previewUrl" alt="预览" />
-          <figcaption class="preview-note">{{ sizeText }}</figcaption>
-        </figure>
-
-        <label class="field">
-          <span class="label">标题（可选）</span>
-          <input
-            v-model.trim="title"
-            type="text"
+          <van-uploader
+            v-model="files"
+            :max-count="1"
+            :after-read="onRead"
+            :after-delete="onDelete"
             :disabled="busy"
-            placeholder="一句话给它起个名"
-          />
-        </label>
+          ></van-uploader>
+          <p class="size-hint" v-if="sizeText">{{ sizeText }}</p>
+        </div>
 
-        <label class="field">
-          <span class="label">我为什么保存它（可选）</span>
-          <textarea
-            v-model="note"
-            rows="4"
-            :disabled="busy"
-            placeholder="哪一点让我停下来多看了一眼"
-          ></textarea>
-        </label>
+        <div class="vant-block">
+          <van-cell-group inset>
+            <van-field
+              v-model="title"
+              label="标题"
+              placeholder="一句话给它起个名"
+              :disabled="busy"
+            ></van-field>
+            <van-field
+              v-model="note"
+              label="为什么"
+              type="textarea"
+              autosize
+              placeholder="哪一点让我停下来多看了一眼"
+              :disabled="busy"
+            ></van-field>
+          </van-cell-group>
+        </div>
 
         <p v-if="error" class="error">{{ error }}</p>
 
-        <button class="btn" type="submit" :disabled="busy || !file">
-          {{ busy ? statusText : '保存' }}
-        </button>
+        <van-button
+          type="primary"
+          block
+          round
+          native-type="submit"
+          :disabled="busy || !file"
+        >{{ busy ? statusText : '保存' }}</van-button>
       </form>
     </main>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vant@4/lib/vant.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/browser-image-compression@2/dist/browser-image-compression.js"></script>
   <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
   <script src="js/config.js"></script>

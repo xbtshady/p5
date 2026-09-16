@@ -26,6 +26,9 @@
   var ref = Vue.ref;
   var P5 = window.P5 || {};
 
+  // Vant 的函数式组件挂在全局 vant 上（不是 Vue 插件的一部分）
+  var showImagePreview = (window.vant || {}).showImagePreview;
+
   function pad(n) {
     return String(n).padStart(2, "0");
   }
@@ -118,12 +121,40 @@
           }
         }
 
+        /**
+         * 点图全屏看 —— 交给 Vant 的 showImagePreview（自带双指缩放、左右切换）。
+         *
+         * 传进来的 index 是列表下标，但取不到临时链接的照片不参与预览，
+         * 所以要重新数一遍它在「有图的那批」里排第几，否则点第 3 张会跳到第 2 张。
+         */
+        function preview(index) {
+          if (typeof showImagePreview !== "function") return;
+
+          var urls = [];
+          var start = 0;
+
+          photos.forEach(function (p, i) {
+            if (!p.url) return;
+            if (i === index) start = urls.length;
+            urls.push(p.url);
+          });
+
+          if (!urls.length) return;
+
+          showImagePreview({
+            images: urls,
+            startPosition: start,
+            closeable: true
+          });
+        }
+
         return {
           photos: ref(photos),
           busy: busy,
           error: err,
           scrolled: scrolled,
-          logout: logout
+          logout: logout,
+          preview: preview
         };
       }
     }).mount("#app");
