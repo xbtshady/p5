@@ -172,7 +172,7 @@
               var dangerColor =
                 getComputedStyle(document.documentElement)
                   .getPropertyValue("--danger")
-                  .trim() || "#d8452f";
+                  .trim() || "#bc331c";
 
               await showConfirmDialog({
                 title: "删除这张照片？",
