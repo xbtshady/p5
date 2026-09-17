@@ -167,12 +167,18 @@
 
           if (typeof showConfirmDialog === "function") {
             try {
+              // 危险动作按全站约定用 --danger 那支红。
+              // 从 CSS 变量读，不抄一份色值 —— 抄了就是两处维护，换主题时必漏一边。
+              var dangerColor =
+                getComputedStyle(document.documentElement)
+                  .getPropertyValue("--danger")
+                  .trim() || "#d8452f";
+
               await showConfirmDialog({
                 title: "删除这张照片？",
                 message: "照片和记录都会删掉，无法恢复。",
                 confirmButtonText: "删除",
-                // 危险动作按全站约定用 --danger 那支红
-                confirmButtonColor: "#c0392b"
+                confirmButtonColor: dangerColor
               });
             } catch (e) {
               return; // 点了取消

@@ -1,14 +1,18 @@
 /* ============================================================================
- * P5 样式表 —— 0.4 淡色主题
+ * P5 样式表 —— 0.6 冷灰 + 磨砂
  * ============================================================================
  *
  * 三条原则：
- *   1. 照片是主角 —— 底与卡面都是中性色，不给照片染任何色调
- *   2. 层次靠阴影，不靠边框 —— 淡色下 1px 灰边框会显脏，还会和照片抢线条
+ *   1. 照片是主角 —— 底与卡面都是中性色（冷灰系，不带暖黄），不给照片染任何色调
+ *   2. 层次靠阴影 + 玻璃，不靠边框 —— 淡色下 1px 灰边框会显脏，还会和照片抢线条
  *   3. 动效克制 —— 只在 hover / focus / 入场三处出现，120–240ms
  *
  * 配色是全站唯一的来源，改主题只改 :root。
  * 括号里是对比度，已按 WCAG 算过：正文要 ≥ 7:1，次要文字和按钮要 ≥ 4.5:1。
+ *
+ * 磨砂（毛玻璃）在哪几处：登录卡 .card、列表卡 .shot、顶栏 .topbar。
+ * 它要求背后**有东西可透** —— 所以 body::before 铺了一层光斑，见那一节。
+ * 不支持 backdrop-filter 的浏览器由文件末尾的 @supports not 块退回实色。
  *
  * 无障碍：文件末尾有一段 prefers-reduced-motion，系统开了「减少动态效果」
  * 会把所有动画和过渡压到 0.001ms（保留终态，不是删掉效果）。
@@ -16,26 +20,34 @@
 
 :root {
   /* ---------- 颜色 ---------- */
-  --bg: #f7f6f3;              /* 页面底：暖白，带一点纸感 */
-  --card: #ffffff;            /* 卡面 */
-  --skeleton: #efece6;        /* 图片尚未解码时的占位灰 */
-  --text: #1b1d21;            /* 正文（15.6:1） */
-  --muted: #6b7079;           /* 次要文字（4.6:1）—— 全站只用这两级文字色 */
-  --accent: #0a7d60;          /* 主色，薄荷绿调深（白字 5.1:1） */
-  --accent-ink: #086a51;      /* 主色按下/hover 再深一档 */
-  --accent-soft: rgba(10, 125, 96, 0.1);   /* 焦点外圈、浅底 */
-  --danger: #c0392b;          /* 错误文字（5.4:1） */
-  --border: #e6e2db;          /* 分隔线、卡片描边（配阴影用，可以很淡） */
-  --border-strong: #d6d1c8;   /* 输入框这类需要看清轮廓的边 */
+  --bg: #eceef1;              /* 页面底：冷灰（现代 iOS 风），衬白卡不衬暖纸 */
+  /* 实色白：给「必须不透明」的地方用 —— 输入框、ghost 按钮、Vant 的表单块、
+     以及不支持 backdrop-filter 时的降级卡面。磨砂卡面走下面的 --glass。 */
+  --card: #ffffff;
+  --skeleton: #e4e6ea;        /* 图片尚未解码时的占位灰 */
+  --text: #16181c;            /* 正文（16.9:1） */
+  --muted: #6c717b;           /* 次要文字（4.6:1）—— 全站只用这两级文字色 */
+  --accent: #16181c;          /* 主色：近黑（现代风），白字 17.6:1 */
+  --accent-ink: #2b2f36;      /* 主色按下/hover 略提亮一档 */
+  --accent-soft: rgba(22, 24, 28, 0.08);   /* 焦点外圈、浅底 */
+  --danger: #d8452f;          /* 错误文字（4.6:1） */
+  --border: rgba(22, 24, 28, 0.08);         /* 分隔线、卡片描边 */
+  --border-strong: rgba(22, 24, 28, 0.16);  /* 输入框这类需要看清轮廓的边 */
 
-  /* ---------- 层次：两级阴影 ---------- */
-  --shadow-1: 0 1px 2px rgba(28, 32, 40, 0.04), 0 1px 3px rgba(28, 32, 40, 0.04);
-  --shadow-2: 0 1px 2px rgba(28, 32, 40, 0.04), 0 8px 24px rgba(28, 32, 40, 0.07);
+  /* ---------- 磨砂：卡片与顶栏的半透明底 ---------- */
+  --glass: rgba(255, 255, 255, 0.72);       /* 卡面（照片/光斑会透上来） */
+  --glass-strong: rgba(255, 255, 255, 0.86);/* 顶栏，要保证文字读得清 */
+  --blur: 18px;
 
-  /* ---------- 圆角阶 ---------- */
-  --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
+  /* ---------- 层次：三级阴影（磨砂卡需要「浮起」感，靠外扩阴影而不是描边） ---------- */
+  --shadow-1: 0 1px 2px rgba(16, 20, 28, 0.05), 0 1px 3px rgba(16, 20, 28, 0.05);
+  --shadow-2: 0 1px 2px rgba(16, 20, 28, 0.04), 0 10px 32px rgba(16, 20, 28, 0.1);
+  --shadow-3: 0 2px 6px rgba(16, 20, 28, 0.06), 0 24px 60px rgba(16, 20, 28, 0.16);
+
+  /* ---------- 圆角阶：现代风比 0.4 更圆一档 ---------- */
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 24px;
 
   /* ---------- 动效：时长与曲线 ---------- */
   --dur-fast: 120ms;          /* 按下回弹 */
@@ -89,6 +101,36 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ---------- 背景光斑：磨砂的「料」 ----------
+ *
+ * 毛玻璃只会模糊它**背后**的东西。如果背后是一片纯色灰，模糊完还是纯色灰，
+ * 眼睛完全看不出磨砂感。所以底上必须有点东西可透 —— 这就是这层光斑的作用。
+ *
+ * 三个柔和圆斑 + 一层纵向渐变，都是低饱和的中性色（不进任何彩调），
+ * 位置刻意避开正中，免得和卡片上的字打架。
+ *
+ * 放在 html 的 fixed 伪元素上（不是 body）：body 在列表页是有高度的块，
+ * 会跟着内容滚；固定的背景画布才不受滚动影响。
+ */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(
+      520px 420px at 12% 8%,
+      rgba(255, 255, 255, 0.9),
+      transparent 62%
+    ),
+    radial-gradient(460px 460px at 88% 22%, rgba(198, 205, 216, 0.55), transparent 64%),
+    radial-gradient(560px 480px at 50% 104%, rgba(176, 184, 197, 0.42), transparent 66%),
+    linear-gradient(180deg, #f2f3f6 0%, var(--bg) 46%);
+}
+
 /* ---------- 入场动效 ---------- */
 
 /* 从下方 8px 浮上来，只在元素出现时跑一次 */
@@ -121,9 +163,14 @@ body {
   width: 100%;
   max-width: 400px;
   padding: 32px 24px;
-  background: var(--card);
+  /* 磨砂：半透明白 + 模糊背后的光斑。没有 backdrop-filter 的老浏览器
+     会退回上一层 --card（白色），只是少了通透感，不影响可读性 */
+  background: var(--glass);
+  backdrop-filter: blur(var(--blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-2);
+  box-shadow: var(--shadow-3);
   animation: rise var(--dur-slow) var(--ease) both;
 }
 
@@ -234,7 +281,7 @@ input[type="file"]::file-selector-button {
 }
 
 input[type="file"]:hover::file-selector-button {
-  background: #f3f1ec;
+  background: rgba(22, 24, 28, 0.04);
   border-color: var(--muted);
 }
 
@@ -306,13 +353,16 @@ input[type="file"]:hover::file-selector-button {
 }
 
 .btn.ghost:hover:not(:disabled) {
-  background: #f3f1ec;
+  background: rgba(22, 24, 28, 0.04);
   border-color: var(--muted);
 }
 
 /* ---------- 列表页：顶部条 + 内容 ---------- */
 
-/* 列表页不是居中的单卡片，改成顶部条 + 从上往下排 */
+/* 列表页不是居中的单卡片，改成顶部条 + 从上往下排。
+   这里刻意**不覆盖** background —— 底色交给 body 统一给（登录页同款实色 --bg）。
+   光斑层是 z-index:-1 的伪元素、画在 body 背景之上，给不给底都不影响它可见，
+   但不给的话万一那层失效就退回浏览器默认白，所以三页统一有底，不留特例。 */
 .page-list {
   display: block;
   padding: 0;
@@ -327,19 +377,20 @@ input[type="file"]:hover::file-selector-button {
   justify-content: space-between;
   gap: 12px;
   padding: 14px 20px;
-  /* 半透明 + 毛玻璃：照片从下面滚过时不会硬生生被切断 */
-  background: rgba(247, 246, 243, 0.92);
-  backdrop-filter: saturate(180%) blur(12px);
-  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  /* 磨砂顶栏：照片/卡片从下面滚过时被糊成一层雾，而不是硬生生被切断。
+     不透明度取 0.86 —— 比卡片的 0.72 实，因为上面有文字要读 */
+  background: var(--glass-strong);
+  backdrop-filter: saturate(180%) blur(var(--blur));
+  -webkit-backdrop-filter: saturate(180%) blur(var(--blur));
   border-bottom: 1px solid transparent;
   transition: border-color var(--dur) var(--ease-io),
     box-shadow var(--dur) var(--ease-io);
 }
 
-/* 滚动之后才浮出来，提示下面还有内容（由 js/app.js 挂 class） */
+/* 滚动之后才浮出下边界，提示下面还有内容（由 js/app.js 挂 class） */
 .topbar.is-scrolled {
   border-bottom-color: var(--border);
-  box-shadow: 0 1px 12px rgba(28, 32, 40, 0.05);
+  box-shadow: 0 1px 16px rgba(16, 20, 28, 0.06);
 }
 
 .topbar-brand {
@@ -398,7 +449,7 @@ input[type="file"]:hover::file-selector-button {
 
 .text-btn:hover:not(:disabled) {
   color: var(--text);
-  background: #f3f1ec;
+  background: rgba(22, 24, 28, 0.04);
   border-color: var(--muted);
 }
 
@@ -422,6 +473,12 @@ input[type="file"]:hover::file-selector-button {
   max-width: 560px;
   margin: 0 auto;
   padding: 20px;
+  /* 顶部补上顶栏的高度：顶栏是 sticky 的，会盖住主内容区的开头。
+     桌面/手机浏览器里 61 正好对齐，多出来的 1px 是描边的余量 */
+  padding-top: calc(61px + env(safe-area-inset-top, 0px));
+  /* 刘海屏横放时左右也要留出安全区 */
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
 }
 
 .empty {
@@ -455,12 +512,22 @@ input[type="file"]:hover::file-selector-button {
 
 .shot {
   position: relative; /* 删除按钮以它为定位参照 */
-  background: var(--card);
-  border-radius: 14px;
+  /* 磨砂卡：照片本身不透（img 是不透明的），透出来的是卡片下半部的文字区 ——
+     光斑从那儿泛上来，卡片才有「玻璃」而不是「白纸」的观感 */
+  background: var(--glass);
+  backdrop-filter: blur(var(--blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: var(--r-lg);
   overflow: hidden;
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-2);
   animation: rise var(--dur-slow) var(--ease) both;
   /* 错峰入场：第 n 张晚 50ms 出发，由模板传 --i（上限 6，不然后面要等） */
+  /* ⚠️ 这一行不能用 animation-delay 简写属性合并进上面的 animation ——
+     一旦 --i 是个非法值（例如字符串 '6'，calc('6' * 50ms) 不合法），
+     **整条 animation 简写会一起失效**：动画不跑，元素停在 rise 的 from 帧，
+     也就是 opacity:0 —— 表现为「卡片全透明」而控制台干净。
+     单独写一条属性，最多只是丢延时不丢动画。 */
   animation-delay: calc(var(--i, 0) * 50ms);
   transition: box-shadow var(--dur) var(--ease-io),
     transform var(--dur) var(--ease-io);
@@ -485,11 +552,11 @@ input[type="file"]:hover::file-selector-button {
   font-size: 18px;
   line-height: 1;
   color: #ffffff;
-  background: rgba(18, 20, 24, 0.55);
+  background: rgba(16, 18, 22, 0.55);
   border: none;
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(18, 20, 24, 0.28);
+  box-shadow: 0 1px 4px rgba(16, 18, 22, 0.28);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   transition: background var(--dur) var(--ease-io),
@@ -550,6 +617,9 @@ input[type="file"]:hover::file-selector-button {
 
 .shot-body {
   padding: 12px 14px 14px;
+  /* 磨砂卡上的文字区，给一点极淡的白底打底：
+     光斑正巧落在文字下时，靠它把对比度稳在 15:1 以上 */
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .shot-title {
@@ -597,6 +667,28 @@ input[type="file"]:hover::file-selector-button {
 
   .shot:hover {
     transform: none;
+  }
+}
+
+/* ---------- 降级：不支持 backdrop-filter 的浏览器 ---------- */
+
+/* 老 Firefox / 旧安卓 WebView 上 backdrop-filter 无效，但 rgba(255,255,255,0.72)
+   仍然生效 —— 结果是一张半透明卡压在光斑上，没有模糊，字会看不清。
+   所以这里把「玻璃」退回「实色」：白色照旧，只是不再通透。
+   @supports not 只在这类浏览器里命中，现代浏览器一行都不会执行。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .card,
+  .shot {
+    background: var(--card);
+    border-color: var(--border);
+  }
+
+  .topbar {
+    background: var(--bg);
+  }
+
+  .shot-body {
+    background: transparent;
   }
 }
 
@@ -683,11 +775,11 @@ input[type="file"]:hover::file-selector-button {
 }
 
 .van-uploader__upload:hover {
-  background: #f3f1ec;
+  background: rgba(22, 24, 28, 0.04);
   border-color: var(--muted);
 }
 
 /* Vant 的图片预览遮罩给个不透明的深底，照片在白底上不会发灰 */
 .van-image-preview__overlay {
-  background: rgba(18, 20, 24, 0.94);
+  background: rgba(16, 18, 22, 0.94);
 }

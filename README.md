@@ -2,15 +2,16 @@
 
 线上：https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com
 
-**当前版本 0.5**。已经能用的：
+**当前版本 0.6**。已经能用的：
 
 | 版本 | 内容 |
 |------|------|
 | 0.1 | 打通 CloudBase PostgreSQL 链路（临时表已删） |
 | 0.2 | 用户名密码登录 / 退出 |
 | 0.3 | 上传照片 + 标题 + 一句话；倒序列表看历史；照片按账号隔离 |
-| 0.4 | 淡色主题 + Vant 4 组件库（点图全屏看、上传、表单） |
+| 0.4 | Vant 4 组件库（点图全屏看、上传、表单） |
 | 0.5 | 删除照片（二次确认，记录和桶里的文件一起删） |
+| 0.6 | 视觉改版：冷灰底 + 近黑主色 + 磨砂卡片 |
 
 观察 / 下次尝试 / 标签 / 来源 / 搜索 / 详情页还是 1.0 的内容，见 [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md)。
 
@@ -102,6 +103,8 @@ cloudbase/migrations/      数据库迁移（PostgreSQL）
 
 **页面流转**：`login.html` 是入口，登录成功跳 `index.html`；`index.html` 发现没登录就跳回 `login.html`。都是原生跳转的多页面模型，不是 SPA。
 
+**改样式之前先看 [docs/DESIGN.md](docs/DESIGN.md)**：配色只有一个来源（`:root`），硬编码颜色会破坏换主题的能力；磨砂必须有背景光斑撑着，否则看不出效果。
+
 ---
 
 ## 两件容易忘的事
@@ -149,6 +152,7 @@ npm i -g @cloudbase/cli && tcb login    # 只在需要部署时才做
 | 页面上 `van-*` 组件一个都不显示，控制台还没报错 | 页面脚本漏了 `app.use(vant)` |
 | 写了几个表单字段，只渲染出一个 | 用了自闭合的 `<van-field />`，改成 `<van-field></van-field>` |
 | 改了 `--van-*` 变量不生效 | `<link>` 顺序反了，`css/style.css` 必须在 Vant 的 `index.css` 之后 |
+| 照片卡片整块透明、控制台没报错 | 错峰入场的 `--i` 传成了字符串，`calc('6' * 50ms)` 非法导致整条 `animation` 失效，卡片停在 `opacity:0` 那一帧。见 DESIGN.md §6.2 |
 | 上传报 `STORAGE_BUCKET_NOT_FOUND` / `STORAGE_PERMISSION_DENIED` | `photos` 桶或 `storage.objects` 的 RLS 没建；确认迁移已 apply |
 | 列表里某张显示「图片暂时取不到」 | 临时签名链接（1 小时）过期或生成失败，刷新页面即可 |
 | 保存报错说明上传失败 | 设计如此：**上传成功才落库**，不会留下指向不存在文件的记录 |
@@ -162,5 +166,6 @@ npm i -g @cloudbase/cli && tcb login    # 只在需要部署时才做
 
 ## 文档
 
+- [docs/DESIGN.md](docs/DESIGN.md) —— **前端设计规范**：配色系统、磨砂做法、布局与动效硬约束、改样式的标准流程
 - [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md) —— 产品定位、字段语义、已实现 / 待补的功能
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 技术选型理由、数据模型、安全模型、部署、环境实测记录
