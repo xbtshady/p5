@@ -29,5 +29,8 @@ pnpm-debug.log*
 # cloudbase local
 .cloudbase/
 
+# 工作区记忆（AI 协作产生的本地笔记，不进仓库）
+.workbuddy/
+
 # os
 Thumbs.db

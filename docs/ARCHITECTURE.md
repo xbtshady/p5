@@ -115,20 +115,24 @@ storage.from('photos').remove([path])  ← RLS: 路径首段 = uid
 
 **为什么先删行**：反过来先删文件的话，删行一旦失败就留下指向不存在文件的记录（界面破图），比孤儿文件难处理得多。
 
-标签（0.7–0.9）：
+维度档位（0.11–0.15）：
 
 ```
-新增页选标签（预置点选 + 自定义输入）
- ↓  归一化只走 P5.cleanTags 一道：切分 / 去 # / 清危险字符 / 去重 / 截断
-落库 photo_notes.tags（text[]）
+新增页点「生成提示词」→ 手动发给外部 AI → 把回的 JSON 粘回
+ ↓  解析器解析成 {维度: 值}，再走 P5.cleanTags 归一化
+落库 photo_notes.tags（text[]，元素形如 "镜头:中长焦"）
  ↓
-按标签查：db.from(...).contains('tags', [tag])
- ↓  → postgREST 的 tags=cs.{低机位} → PG 的 tags @> '{低机位}' → GIN 索引
+按维度值查：db.from(...).contains('tags', ["镜头:中长焦"])
+ ↓  → postgREST 的 tags=cs.{镜头:中长焦} → PG 的 tags @> '{镜头:中长焦}' → GIN 索引
 列表页读取（RLS 只返回本人的行，created_at 倒序）
 
-标签云（探索区）：select('tags') 只取这一列，客户端 unnest 计数
+分面筛选（探索区）：select('tags') 只取这一列，客户端 split(':') 后按维度聚合
 （postgREST 表达不了 GROUP BY unnest，见 §4.2）
 ```
+
+**AI 这一步不经过服务端**——剪贴板人工中转。提示词模板、维度字典、解析器都放
+`js/facets.js`（0.11），是纯前端函数（可在 Node 里单测）。所以这条链路 0.11–0.13 都不需要任何
+云函数，也没有 API key 要管。1.5 站内直连时换成函数调用，字典和解析器原样复用。
 
 **归一化为什么必须只有一道**：`contains()` 对数组参数是 `tags.join(',')` 直接拼串、**不做转义**。标签里混进 `, { } "` 会把 postgREST 的数组字面量拼坏。所以清洗放在 `js/cloudbase.js` 里、写库和查询两条路都过它——分成两份迟早漂移。
 
@@ -139,17 +143,17 @@ storage.from('photos').remove([path])  ← RLS: 路径首段 = uid
  ↓
 Cloud Function  ← 1.5 新增
  ↓
-AI API（OpenAI 兼容 /chat/completions）
+AI API（OpenAI 兼容 /chat/completions，复用 2.0 产品的 p2.ai 配置）
  ↓
-分析结果  →  写回 photo_notes（具体字段 1.5 定；
-             早期文档里的 observation / ai_thread 已随字段收敛一起删掉）
+分析结果 → 写回 photo_notes.tags / ai_tips
+          与 0.13 的剪贴板链路共用同一个解析器，只是把人工中转换成函数调用
 ```
 
 ---
 
 ## 四、数据模型
 
-### 4.1 业务表 `photo_notes`（0.3 建，0.7 加 tags）
+### 4.1 业务表 `photo_notes`（0.3 建，0.7 加 tags，0.10 加 ai_tips）
 
 ```sql
 CREATE TABLE public.photo_notes (
@@ -164,6 +168,12 @@ CREATE TABLE public.photo_notes (
   tags         TEXT[]      NOT NULL DEFAULT '{}'
 );
 
+-- 0.10 已执行（2026-09-18，迁移 20260918180000_add_ai_tips_and_clear_tags.sql）
+ALTER TABLE public.photo_notes
+  ADD COLUMN ai_tips TEXT[] NOT NULL DEFAULT '{}';
+-- 同一条迁移里清空 tags：旧的自由标签全部退役（见 PRODUCT-1.0 §3.4）。
+-- 只清内容，列和 GIN 索引都留着给「维度:值」继续用；照片、标题、描述都没动。
+
 CREATE INDEX photo_notes_owner_created_idx
   ON public.photo_notes (owner_id, created_at DESC);
 
@@ -177,10 +187,13 @@ CREATE INDEX photo_notes_tags_idx
 | `owner_id` | text | 归属人，**默认值取自 JWT**（`auth.uid()`），前端不传也传不了 |
 | `storage_path` | text | 桶内路径（不是 URL）。私有桶没有直链，用前要换签名 URL |
 | `title` | text | 标题，可选 |
-| `note` | text | 描述（"这角度没想过"），可选 |
-| `tags` | text[] | 标签数组，0.7 加入。前端传前必须过 `P5.cleanTags` |
+| `note` | text | 描述（自己写的），可选 |
+| `tags` | text[] | 维度档位。0.7 加入，0.10 清空旧值，0.12 起写入 `维度:值` 编码。前端传前必须过 `P5.cleanTags` |
+| `ai_tips` | text[] | AI 给的「下次这样拍」1-3 条，0.10 加入（已执行），0.13 起写入。**单开一列不并进 `note`**：要能分清哪句是自己写的、哪句是 AI 说的（AI 会错，这个区分以后有用） |
 | `created_at` | timestamptz | 创建时间 |
 | `updated_at` | timestamptz | 更新时间 |
+
+`ai_tips` **不加索引**：它从不参与筛选（筛选只按 `tags`），只跟着行一起取出来。
 
 **为什么存 `storage_path` 而不是 `image_url`**：桶是私有的，不存在长期有效的直链。存路径、用时换签名 URL，URL 过期也不会让数据失效；反过来存 URL 的话，链接一过期记录就成了死数据。
 
@@ -188,15 +201,28 @@ CREATE INDEX photo_notes_tags_idx
 
 **命名约定**：物理列用 `snake_case`（PG 惯例）；前端 JS 里用 `camelCase`，在 `js/cloudbase.js` 这一层做映射，业务代码不感知。
 
-### 4.2 标签为什么是 `text[]`（0.7 已落地）
+### 4.2 为什么维度编码进 `tags`，而不是开新列（0.10）
 
-**不用关联表**：1.0 对标签只需要两件事——「按标签筛选」和「列出所有标签及用量」。PG 的数组类型配 GIN 索引就能兜住，不必引入 `photo_tags` 中间表 + JOIN + 插入顺序问题。等 1.5 真要拆技法/题材维度、要做标签统计，再迁移成 `tech_tags` / `topic_tags` 两列或关联表。
+0.10 起要把扁平标签换成「维度 → 值」。三条路：
+
+| 做法 | 代价 |
+|------|------|
+| **编码进 `tags`（选定）**：`"镜头:中长焦"` | 零迁移；筛选复用 0.7 的 `contains` 路径（`cs.{镜头:中长焦}`）；维度增删不用迁移；多值维度（姿势）天然支持 |
+| 新增 `facets JSONB`，`{"镜头":"中长焦"}` | 语义最干净，但 SDK 的 `contains()` 是数组实现（`join(',')`），传对象会拼成 `[object Object]`；且一个键一个值，多值维度变别扭 |
+| 每个维度开一列 | 查询最直观，但**加维度就要迁移**，而维度清单是刻意放开的（AI 可以自己开新维度） |
+
+选第一条不只是省事，它是**低悔选择**：值已经是结构化的 `维度:值`，将来维度清单定死了、
+真要拆成独立列，那只是一次机械的 split 迁移，信息一点不丢。反过来先开列，
+之后每加一个维度都得迁一次。
+
+**旧标签不迁移**：0.7–0.9 的自由标签（技法 / 题材那批）在 0.10 一次性清空（已执行）。
+两套体系并存会让筛选和探索区都得多处理一种情况，而旧数据本身也没多少。
 
 **不用 jsonb**：`tags` 是有序去重的字符串集合，`text[]` 的包含运算符 `@>` 正好对上 GIN 的 `array_ops` 操作符类；jsonb 只能走 `jsonb_ops`，还得多包一层字面量语法。
 
-**标签统计在客户端做，不在数据库**：`SELECT unnest(tags) t, count(*) ... GROUP BY t` 这种聚合 postgREST 表达不了，要在服务端算就得开云函数或直连 SQL——这个项目刻意没有云函数（见 §3）。个人项目量级下（几百条）只取 `tags` 一列也就几 KB，客户端数一遍完全够；真到几千条再换服务端聚合，`P5.listTagCounts()` 的签名不用变。
+**统计在客户端做，不在数据库**：`SELECT unnest(tags) t, count(*) ... GROUP BY t` 这种聚合 postgREST 表达不了，要在服务端算就得开云函数或直连 SQL——这个项目刻意没有云函数（见 §3）。个人项目量级下（几百条）只取 `tags` 一列也就几 KB，客户端 split 一遍完全够；真到几千条再换服务端聚合，接口签名不用变。
 
-**⚠️ 标签里的危险字符**：SDK 的 `contains()` 对数组参数是 `tags.join(',')` 直接拼串，不做任何转义。`, { } [ ] ( ) " '` 这些字符会把 postgREST 的查询拼坏（轻则筛不出，重则语义变成另一个查询）。防线在 `js/cloudbase.js` 的 `cleanTags`：逗号当分隔符切开，其余危险字符直接清掉，单个标签限 12 字、一张照片最多 6 个。**别在前端页面里另写一套清洗**。
+**⚠️ 值里的危险字符**：SDK 的 `contains()` 对数组参数是 `tags.join(',')` 直接拼串，不做任何转义。`, { } [ ] ( ) " '` 这些字符会把 postgREST 的查询拼坏（轻则筛不出，重则语义变成另一个查询）。防线在 `js/cloudbase.js` 的 `cleanTags`。**0.12 起要多拦一个 `:`**——写入口从那版开始产出 `维度:值`，值里再冒出一个冒号会把维度拆错。**别在前端页面里另写一套清洗**。
 
 ### 4.3 已删除：0.1 的 `app_settings`
 
@@ -266,7 +292,9 @@ CREATE POLICY p5_notes_delete ON public.photo_notes
 | 0.5 | 补 `DELETE`：表加 `GRANT DELETE` + 策略，`storage.objects` 加 DELETE 策略（判据与 0.3 相同） |
 | 0.7 | 加 `tags` 列：GRANT 是按表授的，**新列自动继承**，GRANT / RLS 一条没动 |
 | 0.8 / 0.9 | 标签写入口 / 读出口：无安全变更，筛选仍走 RLS 之上的 `contains` |
-| 1.0 | 搜索（客户端过滤标题/描述/标签），无安全变更 |
+| 0.10 | 加 `ai_tips` 列 + 清空 `tags`（**已执行**）：只动列和数据，GRANT / RLS 一条不改（权限按表授，新列自动继承）|
+| 0.11–0.15 | 维度字典 / 写入口 / 读出口：无安全变更。0.12 起 `cleanTags` 多拦一个 `:`，那是查询拼接的健壮性，不是权限 |
+| 1.0 | 搜索（客户端过滤标题 / 描述 / 维度值），无安全变更 |
 | 1.5 | Cloud Function BFF，前端不直连 PG |
 | 2.0 | 完整鉴权（多端/分享需求出现时再谈） |
 
@@ -442,6 +470,7 @@ p5/
 │   ├── config.example.js       # 配置模板（入库）
 │   ├── config.js               # 真实配置 envId + accessKey（不入库）
 │   ├── cloudbase.js            # CloudBase 封装（登录 / 上传 / 落库 / 列表 / 签名 URL / 删除）
+│   ├── facets.js               # 0.11：维度字典 + 提示词模板 + 回填解析器（纯函数，可单测）
 │   ├── login.js                # 登录页逻辑
 │   ├── app.js                  # 照片流逻辑
 │   └── create.js               # 新增页逻辑
@@ -597,19 +626,17 @@ CloudBase 官方支持连接 Git 仓库。无构建项目直接部署静态文�
 
 ## 十二、扩展点（1.5+）
 
-### 1.5 接入 AI
+### 1.5 站内直连 AI
+
+0.11–0.13 会把整条链路的**字典、提示词模板、解析器**都做完，只是中转那一环是剪贴板。
+1.5 要做的只是把中转换掉：
 
 - 新增 Cloud Function：`analyzePhoto`
-- 前端调用 CF，传 `storage_path`（换签名 URL 后交给 AI）+ 用户的"想问什么"
+- 前端传 `storage_path`（换签名 URL 后交给 AI）+ 当前库里已有的维度名单
 - CF 调 OpenAI 兼容 `/chat/completions`（复用 2.0 产品的 p2.ai 配置：apiKey / baseUrl / model）
-- 分析结果写回 `photo_notes`——早期文档里的 `observation` / `ai_thread` 字段已随字段收敛删掉，
-  具体落到哪列 1.5 设计时再定（候选：并入 `note`，或单独开一列）
+- 回来的结果过**同一个解析器**（`js/facets.js`），写回 `tags` / `ai_tips`
 
-### 1.5 标签分类
-
-- `tags` 拆为 `tech_tags` / `topic_tags` 两个数组
-- 迁移：按预置标签清单自动分类（构图/角度/光线 → tech_tags；环境人像/室内/夜景 → topic_tags）
-- 预置清单在 `js/create.js` 的 `PRESET_GROUPS`，已经是按维度分组的，届时直接映射到字段名
+⚠️ API key 必须留在 CF 里，不能下发到前端。
 
 ### 2.0 语义搜索
 
