@@ -1,159 +1,38 @@
 # P5
 
+一本摄影参考手册（人像为主）：攒案例、AI 标好档位和技巧，以后拍照前翻。
+
 线上：https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com
+当前版本 0.10。**进度和规划只在 [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md) 的进度表里维护**，这里不重复一份。
 
-**当前版本 0.10（只动了数据层，界面还是 0.9 的样子）**。已经能用的：
-
-| 版本 | 内容 |
-|------|------|
-| 0.1 | 打通 CloudBase PostgreSQL 链路（临时表已删） |
-| 0.2 | 用户名密码登录 / 退出 |
-| 0.3 | 上传照片 + 标题 + 一句话；倒序列表看历史；照片按账号隔离 |
-| 0.4 | Vant 4 组件库（点图全屏看、上传、表单） |
-| 0.5 | 删除照片（二次确认，记录和桶里的文件一起删） |
-| 0.6 | 视觉改版：冷灰底 + 近黑主色 + 磨砂卡片 |
-| 0.7 | 标签数据层（`tags` 列 + GIN 索引） |
-| 0.8 | 新增页选标签：预置多选 + 自定义 |
-| 0.9 | 卡片标签 + 首页「探索」标签云，点了按标签筛 |
-| 0.10 | 数据层换轨：加 `ai_tips` 列 + 清空旧的自由标签（不可逆，所以单独先做） |
-
-**0.11–0.15 是「标签换成维度档位 + AI 分析闭环」的整条线**，拆成 5 版按老节奏走
-（数据层 → 写入口 → 读出口）：0.11 维度字典 → 0.12 写入口·维度选择 → 0.13 写入口·AI 闭环
-→ 0.14 读出口·卡片 → 0.15 读出口·探索筛选。
-
-标签从自由词换成「维度档位」（镜头 / 时段 / 光线 / 视角 / 景别 / 姿势），由 AI 分析回填。
-站里不接 AI：把提示词和照片发给任意能看图的 AI，回的 JSON 粘回新增页就自动填好档位和
-「下次这样拍」的技巧。提示词正文见 [docs/PROMPT.md](docs/PROMPT.md)。
-
-搜索和 PWA 还是 1.0 的内容，见 [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md)。
-
----
-
-## 改完怎么上线
+## 跑起来
 
 ```bash
-./deploy.sh
+python -m http.server 5173     # 本地预览（file:// 有跨域问题，必须走 HTTP）
+./deploy.sh                    # 部署
 ```
 
-## 本地预览
-
-```bash
-python -m http.server 5173
-```
-
-打开 http://localhost:5173 ，会跳到登录页。用下面「账号」里的用户名密码登录。
-
-> 别直接双击 `index.html`——`file://` 协议会有跨域问题，必须走本地 HTTP 服务。
-
----
-
-## 用起来是什么样
-
-- 登录页：用户名 + 密码（Vant 表单），登录成功进照片流
-- 照片流：按时间倒序，点照片**全屏看**（双指缩放、左右切换），右上角 `＋` 新增、`退出` 登出
-- 删除：每张卡片右上角有个 `×`，点了先弹确认，确认后**记录和桶里的文件一起删**（删掉不可恢复）
-- 新增页：选图后**前端自动压缩**（长边 1600px、WebP，显示「3.2 MB → 420 KB」）再上传，标题和描述都可留空
-- 标签：预置 11 个（技法：构图/角度/光线/色彩/姿势/镜头；题材：环境人像/室内/夜景/街拍/场景）点选，也可以自己输——逗号、顿号、空格分隔算多个，`#` 号会自动去掉。首页「探索」区能看到每个标签攒了几张，**点了就看这一类**，再点一次取消。⚠️ 这套自由标签已在 0.10 清空退役，0.12 起换成维度档位（见上）
-- 隔离：照片存在**私有桶**里，别人拿到链接也打不开；列表只返回你自己的记录；删除也只能删自己的
-
----
+- `js/config.js` 不入库。新机器补一份：
+  `curl -o js/config.js https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com/js/config.js`
+  （它已随站点上线，下载即最新；或 `cp js/config.example.js js/config.js` 手填）
+- 部署**只能用 `./deploy.sh`**：CLI 直传会把只读的 `.git` 一起扫，报
+  `Path has no read/write permissions`；脚本是先拷到临时目录再上传
+- `accessKey` 是 Publishable Key，只标识应用、放前端是安全的（门禁在服务端 Origin 校验 + RLS）；
+  **别放 SecretKey**——那是 `service_role`，会绕过 RLS
+- 换台电脑：`git clone` → 补 `config.js` → `npm i -g @cloudbase/cli && tcb login`（只在要部署时才装）
 
 ## 账号
 
-**不开放注册**，账号只能用命令行创建：
+**不开放注册**，命令行创建（`<envId>` = `p5-d4g6dukvb86de1377`）：
 
 ```bash
 tcb user create <用户名> --password <密码> --nickname <显示名> \
-  --type externalUser -e p5-d4g6dukvb86de1377
+  --type externalUser -e <envId>
+tcb user list -e <envId>                              # 看账号，拿 <uid>
+tcb user update <uid> --password <新密码> -e <envId>   # 忘记密码只能这样重置
 ```
 
-建完就能在登录页直接登。日常管理两个入口：
-
-**控制台**：云开发控制台 → 选环境 `p5-d4g6dukvb86de1377` → 「身份认证」→「用户管理」，看列表、建号、禁用、删除都在这里。
-
-**命令行**（本机已装 `tcb`，下面 `<envId>` 都指 `p5-d4g6dukvb86de1377`）：
-
-```bash
-tcb user list -e <envId>                            # 看全部账号
-tcb user list --username <名字> -e <envId>           # 按用户名查
-tcb user update <uid> --password <新密码> -e <envId> # 改密码
-tcb user update <uid> --status BLOCKED -e <envId>    # 禁用
-tcb user delete <uid> -e <envId>                     # 删除（不可恢复）
-```
-
-`<uid>` 从 `list` 的返回里取。
-
-> **忘记密码只能重置**：账号没绑手机/邮箱，走不了验证码改密流程。用上面那条 `update --password` 直接覆盖。
-
----
-
-## 结构
-
-```
-login.html                 登录页（入口）
-index.html                 照片流 + 全屏看图 + 删除
-create.html                新增照片（选图 / 压图 / 选标签 / 保存）
-css/style.css              样式：主题 token + Vant 变量覆盖
-js/config.js               环境配置：envId + accessKey（已被 gitignore）
-js/cloudbase.js            CloudBase 封装（登录 / 上传 / 落库 / 列表 / 临时链接 / 删除）
-js/facets.js               0.11：维度字典 + 提示词模板 + 回填解析器（纯函数）
-js/login.js  js/app.js  js/create.js   三个页面各自的逻辑
-deploy.sh                  部署脚本
-docs/                      产品与架构文档
-cloudbase/migrations/      数据库迁移（PostgreSQL）
-```
-
-**外部依赖全部走 CDN，无 npm、无构建**：Vue 3（jsdelivr）、Vant 4、browser-image-compression、CloudBase JS SDK。
-
-**三个 HTML 里有两处不能改动的顺序**，改了会静默失效：
-
-1. Vant 的 `index.css` 必须在 `css/style.css` **之前**——样式表里有一层 `--van-*` 覆盖要压在它上面
-2. `<script>` 依次是 Vue → Vant → 压缩库 → CloudBase SDK → `js/config.js` → `js/cloudbase.js` → 页面脚本，且**不能加 `defer`/`async`**（脚本里靠 `typeof Vue === "undefined"` 做兜底提示）
-
-**写页面时的两条硬规则**（踩过，很难查）：
-
-- `van-*` 组件必须写**完整闭合标签**，`<van-field />` 会把后面所有同级组件吞成子元素，表现为「写了好几个只渲染出一个」
-- 页面脚本里 **`app.use(vant)` 一步都不能漏**，漏了不报错，组件就是渲染不出来
-
-**页面流转**：`login.html` 是入口，登录成功跳 `index.html`；`index.html` 发现没登录就跳回 `login.html`。都是原生跳转的多页面模型，不是 SPA。
-
-**改样式之前先看 [docs/DESIGN.md](docs/DESIGN.md)**：配色只有一个来源（`:root`），硬编码颜色会破坏换主题的能力；磨砂必须有背景光斑撑着，否则看不出效果。
-
----
-
-## 两件容易忘的事
-
-**1. 部署只能用 `./deploy.sh`，别手敲 `tcb hosting deploy .`**
-CLI 会连只读的 `.git` 一起扫，报 `Path has no read/write permissions` 直接中断。
-脚本的做法是先把站点文件复制到临时目录，再从那里上传。
-
-**2. `js/config.js` 不入库，新机器上要自己补回来**
-
-```bash
-curl -o js/config.js https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com/js/config.js
-```
-
-它已随站点部署上线，所以直接下载就是最新的。也可以 `cp js/config.example.js js/config.js` 手填——`envId` 在控制台「环境 → 环境概览」，`accessKey` 在「环境 → API Key」。
-
-`accessKey` 是 Publishable Key——只标识应用、本身不带权限，放前端是安全的（真正的门禁是服务端 Origin 校验 + 数据库 RLS）。但**别放 SecretKey**，那是 `service_role`，会绕过 RLS。
-
----
-
-## 换台电脑（公司 ↔ 家里）
-
-云端的环境、数据库、线上站点都在腾讯云上，**不用重建**。新机器只要三步：
-
-```bash
-git clone https://github.com/xbtshady/p5.git D:/mycode/p5 && cd D:/mycode/p5
-curl -o js/config.js https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com/js/config.js
-npm i -g @cloudbase/cli && tcb login    # 只在需要部署时才做
-```
-
-- 第 2 步：`config.js` 不入库，但已随站点上线，下载即可（细节见上面「两件容易忘的事」）
-- 第 3 步：CLI 是全局工具，装了才有 `tcb` 命令；`tcb login` 是**账号级**授权，扫码一次即可，登录态存在用户目录、不在项目里
-- 每次 `git push` 若要求认证，用 GitHub 用户名 + PAT
-
----
+控制台：云开发控制台 → 选环境 → 「身份认证 → 用户管理」。
 
 ## 出问题先看这里
 
@@ -161,26 +40,24 @@ npm i -g @cloudbase/cli && tcb login    # 只在需要部署时才做
 |------|------|
 | 页面报「未配置 envId / accessKey」 | `js/config.js` 没创建，或值还是空的 |
 | 登录报 `PROVIDER_NOT_ENABLED` | 控制台「身份认证 → 登录方式」里没开「用户名密码登录」 |
-| 登录一直说用户名或密码不正确 | 用 `tcb user list` 核对用户名；密码忘了就按上面「账号」里的办法重置 |
-| 登录成功但刷新又回登录页 | `localStorage` 被清（浏览器隐私模式、手动清理） |
-| 页面上 `van-*` 组件一个都不显示，控制台还没报错 | 页面脚本漏了 `app.use(vant)` |
-| 写了几个表单字段，只渲染出一个 | 用了自闭合的 `<van-field />`，改成 `<van-field></van-field>` |
-| 改了 `--van-*` 变量不生效 | `<link>` 顺序反了，`css/style.css` 必须在 Vant 的 `index.css` 之后 |
-| 照片卡片整块透明、控制台没报错 | 错峰入场的 `--i` 传成了字符串，`calc('6' * 50ms)` 非法导致整条 `animation` 失效，卡片停在 `opacity:0` 那一帧。见 DESIGN.md §6.2 |
-| 上传报 `STORAGE_BUCKET_NOT_FOUND` / `STORAGE_PERMISSION_DENIED` | `photos` 桶或 `storage.objects` 的 RLS 没建；确认迁移已 apply |
-| 列表里某张显示「图片暂时取不到」 | 临时签名链接（1 小时）过期或生成失败，刷新页面即可 |
-| 保存报错说明上传失败 | 设计如此：**上传成功才落库**，不会留下指向不存在文件的记录 |
-| 删除后照片还在 | 删除要先过确认弹窗；确认了还在就刷新看看，仍不消失见下一条 |
-| 删除报权限不足 | `photo_notes` / `storage.objects` 的 DELETE 策略没建；确认迁移已 apply |
-| 记录删了但存储里还留着文件 | 设计如此：**先删行再删文件**，文件删失败只留孤儿（控制台日志有 `孤儿文件` 提示），不影响使用 |
+| 登录一直说用户名或密码不正确 | 用 `tcb user list` 核对；密码忘了按上面「账号」里的办法重置 |
+| 登录成功但刷新又回登录页 | `localStorage` 被清（隐私模式、手动清理） |
+| `van-*` 组件一个都不显示，控制台没报错 | 页面脚本漏了 `app.use(vant)` |
+| 写了几个表单字段，只渲染出一个 | 用了自闭合 `<van-field />`，改成 `<van-field></van-field>` |
+| 改 `--van-*` 变量不生效 | `<link>` 顺序反了，`css/style.css` 必须在 Vant 的 `index.css` 之后 |
+| 照片卡片整块透明、控制台没报错 | 错峰入场的 `--i` 传成了字符串，`animation` 整条失效停在 `opacity:0`。见 DESIGN.md §6.2 |
+| 上传报 `STORAGE_BUCKET_NOT_FOUND` / `STORAGE_PERMISSION_DENIED` | `photos` 桶或 `storage.objects` 的 RLS 没建；确认迁移已执行 |
+| 列表里某张显示「图片暂时取不到」 | 临时签名链接（1 小时）过期或生成失败，刷新即可 |
 | 报 403 / CORS | 访问域名不在环境安全域名白名单里 |
-| 页面是旧的 | CDN 缓存，强刷 Ctrl+Shift+R，或等几分钟 |
+| 页面是旧的 | CDN 缓存，强刷 Ctrl+Shift+R |
 
----
+## 结构与文档
 
-## 文档
+代码结构、脚本引入顺序、Vant 的三条硬约定（`app.use(vant)` 不能漏 / `van-*` 要完整闭合 /
+`style.css` 排在 Vant 之后）都在 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) §七、§8.2。
+**外部依赖全走 CDN，无 npm、无构建**：Vue 3、Vant 4、browser-image-compression、CloudBase JS SDK。
 
-- [docs/DESIGN.md](docs/DESIGN.md) —— **前端设计规范**：配色系统、磨砂做法、布局与动效硬约束、改样式的标准流程
-- [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md) —— 产品定位、字段语义、已实现 / 待补的功能
-- [docs/PROMPT.md](docs/PROMPT.md) —— AI 分析用的提示词（权威来源）与它的设计理由
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 技术选型理由、数据模型、安全模型、部署、环境实测记录
+- [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md) —— 产品定位、字段语义、进度表
+- [docs/PROMPT.md](docs/PROMPT.md) —— AI 分析用的提示词（权威来源）与设计理由
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) —— 技术选型、数据模型、安全模型、部署、环境实测
+- [docs/DESIGN.md](docs/DESIGN.md) —— 视觉规范。**改样式先看它**：配色只有一个来源（`:root`），硬编码颜色会破坏换主题
