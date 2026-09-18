@@ -24,24 +24,31 @@
       <h1 class="brand">P5</h1>
 
       <form class="form" @submit.prevent="submit">
-        <div class="vant-block">
-          <van-cell-group inset>
-            <van-field
-              v-model.trim="username"
-              label="用户名"
-              autocomplete="username"
-              autocapitalize="none"
-              spellcheck="false"
-              :disabled="busy"
-            ></van-field>
-            <van-field
-              v-model="password"
-              type="password"
-              label="密码"
-              autocomplete="current-password"
-              :disabled="busy"
-            ></van-field>
-          </van-cell-group>
+        <!-- 标签并进占位提示（现代登录表单通行做法），标签本身视觉隐藏、
+             留在无障碍树里给读屏用。用原生 input 而不是 van-field：
+             Vant 的 aria-* 只会落到外层 div 上、内部 input 拿不到，
+             label 渲染的也是 <div>，做不了 label→input 的关联 -->
+        <div class="login-fields">
+          <label class="sr-only" for="login-username">用户名</label>
+          <input
+            id="login-username"
+            v-model.trim="username"
+            placeholder="请输入用户名"
+            autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            :disabled="busy"
+          />
+
+          <label class="sr-only" for="login-password">密码</label>
+          <input
+            id="login-password"
+            v-model="password"
+            type="password"
+            placeholder="请输入密码"
+            autocomplete="current-password"
+            :disabled="busy"
+          />
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>

@@ -150,15 +150,19 @@ padding-top: calc(61px + env(safe-area-inset-top, 0px));
 
 ---
 
-## 五、Vant 4 的三条硬约定
+## 五、Vant 4 的四条硬约定
 
 组件库只负责**控件**，不负责**壳**（输入框、上传、看图、确认框用它；卡片、顶栏、按钮视觉自己写）。
 
-下面三条**都会静默失败**，改任何页面前先记住：
+下面几条**都会静默失败**，改任何页面前先记住：
 
 1. `css/style.css` 的 `<link>` 必须在 Vant `index.css` **之后**，否则 `--van-*` 覆盖被默认值盖掉
 2. 页面脚本里 `app.use(vant)` 一步不能漏，漏了组件渲染不出来且不报错
 3. 所有 `van-*` 写**完整闭合标签**，`<van-field />` 会吞掉后面所有同级组件
+4. `van-field` 上传的 `aria-*` 等未声明属性落到**外层 div**，内部 `<input>` 拿不到
+   （它只转发 `placeholder` / `autocomplete` 这类声明过的 prop）。所以需要真正的
+   无障碍标签时别用 van-field —— 它的 label 渲染的是 `<div>`，做不了 label→input
+   的关联；改用原生 `<input>` + `<label for>`（见登录页 `.sr-only`）
 
 > 确认弹窗的按钮颜色写在 JS 里（`confirmButtonColor`），是全站唯一一处颜色值不在 CSS 的地方 ——
 > 改 `--danger` 时这里要跟着改。

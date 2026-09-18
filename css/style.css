@@ -233,6 +233,40 @@ html::before {
   gap: 16px;
 }
 
+/* ---------- 登录页字段：标签并进占位提示 ----------
+ * 现代登录表单通行做法（163 / Google / GitHub 都是）：不排行外标签，
+ * 把「这格填什么」写进 placeholder，一行一件事，视觉更短更利落。
+ *
+ * 两点没跟着省：
+ *   1. 无障碍的标签 —— 视觉隐藏但留在无障碍树里（.sr-only），
+ *      placeholder 一打字就没了，只靠它等于没标签
+ *   2. 输入框轮廓 —— 去掉行外标签后它成了唯一的分组线索，
+ *      所以这两格必须自带边框（不能像字段组里那样靠留白分组）
+ *
+ * 这里用原生 input 而不是 van-field：全局 input 样式（边框 + 圆角 + 白底 +
+ * 焦点外圈）正好就是要的样子，不必再叠一层组件覆盖。
+ */
+.login-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 视觉上不显示、但读屏读得到。⚠️ 不能用 display:none / visibility:hidden ——
+   那样无障碍树里也没了，等于没标签。绝对定位也要留着：一旦进文档流，
+   它就成了 flex 的一项，把字段和字段之间撑开 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 .field {
   display: flex;
   flex-direction: column;
