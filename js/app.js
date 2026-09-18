@@ -1,14 +1,21 @@
 /**
- * 首页（照片列表）逻辑 —— 0.5 版
+ * 首页（照片列表）逻辑 —— 0.9 版（加上标签筛选）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
  *   2. 取当前用户的照片（RLS 只会返回本人的行，前端不传也不该传归属条件）
  *   3. 私有桶拿不到直链，渲染前批量换成临时访问链接
- *   4. 卡片右上角可删除：二次确认后先删行、再删桶里的文件
+ *   4. 取一次标签用量，给「探索」区做标签云
+ *   5. 卡片右上角可删除：二次确认后先删行、再删桶里的文件
+ *   6. 点标签筛选（探索区或卡片上的都行），再点一次取消
  *
  * 关于「刷新时闪一下」：沿用 0.1 定下的约定 —— 先把要显示的内容全部确定好，
- * 再 mount Vue。所以照片列表和临时链接都在 mount 之前就备齐了。
+ * 再 mount Vue。所以照片列表、临时链接、标签用量都在 mount 之前就备齐了。
+ *
+ * 筛选为什么一律走服务端查询，而不是在前端过滤已取回的数组：
+ *   筛过一次之后手上的列表就不是全集了（只有带该标签的那几张），
+ *   再在前端筛只会越筛越少。取消筛选时更是只能重新取。
+ *   所以每次切标签都重新查一次，语义永远一致。
  */
 (function () {
   var boot = document.getElementById("boot");
@@ -25,7 +32,13 @@
 
   var createApp = Vue.createApp;
   var ref = Vue.ref;
+  var computed = Vue.computed;
   var P5 = window.P5 || {};
+
+  // 标签云最多显示几个。个人项目里标签本来就收敛（预置清单只有 11 个），
+  // 但自定义标签攒多了会把「探索」区撑成一大片，所以封个数。
+  // 筛选中的那个标签一定会出现，不受这个上限影响。
+  var TAG_CLOUD_MAX = 12;
 
   // Vant 的函数式组件挂在全局 vant 上（不是 Vue 插件的一部分）
   var vantLib = window.vant || {};
@@ -42,6 +55,38 @@
     var d = new Date(ts);
     if (isNaN(d.getTime())) return "";
     return d.getFullYear() + "." + pad(d.getMonth() + 1) + "." + pad(d.getDate());
+  }
+
+  /**
+   * 取一批照片，并换成可以进 <img src> 的临时链接。
+   * tag 传空串表示不筛。
+   */
+  async function loadPhotos(tag) {
+    var rows = await P5.listPhotos(tag ? { tag: tag } : null);
+
+    var paths = rows
+      .map(function (r) {
+        return r.storage_path;
+      })
+      .filter(Boolean);
+
+    // 私有桶不发直链，必须先换临时访问链接才能进 <img src>
+    var urlMap = paths.length ? await P5.signPhotoUrls(paths) : {};
+
+    return rows.map(function (r) {
+      return {
+        id: r.id,
+        // 删除时要连桶里的文件一起删，所以路径必须留着
+        storagePath: r.storage_path,
+        title: r.title || "",
+        note: r.note || "",
+        tags: r.tags || [],
+        date: fmtDate(r.created_at),
+        url: urlMap[r.storage_path] || "",
+        // 图片解码完置 true，CSS 靠它把照片淡出来
+        loaded: false
+      };
+    });
   }
 
   async function bootstrap() {
@@ -61,33 +106,12 @@
     }
 
     var photos = [];
+    var tagCounts = [];
 
     if (!error) {
       try {
-        var rows = await P5.listPhotos();
-
-        var paths = rows
-          .map(function (r) {
-            return r.storage_path;
-          })
-          .filter(Boolean);
-
-        // 私有桶不发直链，必须先换临时访问链接才能进 <img src>
-        var urlMap = paths.length ? await P5.signPhotoUrls(paths) : {};
-
-        photos = rows.map(function (r) {
-          return {
-            id: r.id,
-            // 删除时要连桶里的文件一起删，所以路径必须留着
-            storagePath: r.storage_path,
-            title: r.title || "",
-            note: r.note || "",
-            date: fmtDate(r.created_at),
-            url: urlMap[r.storage_path] || "",
-            // 图片解码完置 true，CSS 靠它把照片淡出来
-            loaded: false
-          };
-        });
+        photos = await loadPhotos("");
+        tagCounts = await P5.listTagCounts();
       } catch (e) {
         error = e.message || String(e);
       }
@@ -97,6 +121,10 @@
       setup: function () {
         // 渲染用的列表。删除要就地改它，所以外面那个 photos 数组只当初始数据源
         var list = ref(photos);
+        // 标签用量，给探索区做标签云
+        var counts = ref(tagCounts);
+        // 当前筛选的标签，空串 = 没筛
+        var activeTag = ref("");
         var busy = ref(false);
         var err = ref(error);
 
@@ -156,6 +184,57 @@
         }
 
         /**
+         * 标签云。用量倒序取前 TAG_CLOUD_MAX 个。
+         *
+         * 当前筛选中的那个一定带上 —— 否则筛到一个冷门标签后，它自己从云里消失了，
+         * 界面上就没有任何地方能再点它来取消，只能整页刷新。
+         */
+        var tagCloud = computed(function () {
+          var all = counts.value;
+          var top = all.slice(0, TAG_CLOUD_MAX);
+          if (!activeTag.value) return top;
+
+          var already = top.some(function (t) {
+            return t.tag === activeTag.value;
+          });
+          if (already) return top;
+
+          return top.concat(
+            all.filter(function (t) {
+              return t.tag === activeTag.value;
+            })
+          );
+        });
+
+        /**
+         * 切标签筛选。
+         *
+         * 传空串 = 取消筛选。传当前已选的那个 = 再点一次也是取消（开关语义），
+         * 这样探索区的「清除」和「点当前标签」行为一致，不用解释两套。
+         *
+         * ⚠️ activeTag 在查询**成功之后**才改：查询失败时界面应该保持原样，
+         * 不能出现「标签高亮了但列表还是上一批」这种自相矛盾的状态。
+         */
+        async function filterBy(tag) {
+          if (busy.value) return;
+
+          var next = tag === activeTag.value ? "" : tag;
+
+          busy.value = true;
+          err.value = "";
+
+          try {
+            var rows = await loadPhotos(next);
+            list.value = rows;
+            activeTag.value = next;
+          } catch (e) {
+            err.value = e.message || String(e);
+          } finally {
+            busy.value = false;
+          }
+        }
+
+        /**
          * 删除一条记录。
          *
          * 先弹确认：删掉就没了，不给自己留后悔的余地。
@@ -193,6 +272,15 @@
             list.value = list.value.filter(function (x) {
               return x.id !== p.id;
             });
+
+            // 标签用量跟着变了，重取一次。不取的话，删掉最后一张带 #低机位 的照片后，
+            // 探索区那个标签还挂着「1」，点进去却是空的。
+            try {
+              counts.value = await P5.listTagCounts();
+            } catch (ce) {
+              // 只是个数字没更新，不影响用 —— 不值得让整次删除显示成失败
+              console.warn("[P5] 删除后刷新标签用量失败:", ce);
+            }
           } catch (e) {
             err.value = e.message || String(e);
           } finally {
@@ -202,11 +290,14 @@
 
         return {
           photos: list,
+          tagCounts: tagCloud,
+          activeTag: activeTag,
           busy: busy,
           error: err,
           scrolled: scrolled,
           logout: logout,
           preview: preview,
+          filterBy: filterBy,
           remove: remove
         };
       }

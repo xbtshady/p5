@@ -1,10 +1,11 @@
 /**
- * CloudBase 封装 —— 0.5 版（登录 + 照片存取 + 删除）
+ * CloudBase 封装 —— 0.9 版（登录 + 照片存取 + 删除 + 标签）
  *
  * 职责：
  *   1. 初始化 SDK
  *   2. 登录 / 退出 / 查当前用户
  *   3. 照片：上传到私有桶、落库、列出自己的照片、换取临时访问链接、删除
+ *   4. 标签：归一化、按标签筛选、统计标签用量
  *
  * 依赖：
  *   - cloudbase.full.js（页面通过 CDN 引入，全局变量 cloudbase）
@@ -15,8 +16,11 @@
  *   signOut()                   → void          退出登录
  *   getCurrentUser()            → user | null   查当前登录用户（未登录返回 null）
  *   uploadPhoto(file, ext)      → path          上传照片，返回桶内路径
- *   createPhoto(meta)           → row           落库
- *   listPhotos()                → rows          当前用户的照片列表
+ *   createPhoto(meta)           → row           落库（meta.tags 会先过 cleanTags）
+ *   listPhotos({ tag })         → rows          当前用户的照片列表，可按标签筛
+ *   listTagCounts()             → [{tag,count}] 标签用量，倒序（客户端聚合，见函数注释）
+ *   cleanTags(text|array)       → string[]      标签归一化（切分/去空/去重/截断）
+ *   tagLimits()                 → {len,count}   标签的长度与数量上限，给界面做提示
  *   signPhotoUrls(paths)        → {path: url}   批量换临时访问链接
  *   deletePhoto(id, path)       → void          删除记录 + 桶里的文件（先删行再删文件）
  *
@@ -26,6 +30,7 @@
  *   .orderBy(...) → .order(...)
  *   .count()      → .select('*', { count: 'exact' })
  *   .offset(n)    → .range(from, to)
+ *   .includes(v)  → .contains('tags', [v])   ← 数组「包含」，见下面的标签一节
  *
  * 存储同样是 PG 模式，要用 app.storage.from('桶名').upload(...)；
  * 旧 NoSQL 的 app.uploadFile() / app.getTempFileURL() 在这里不适用。
@@ -45,6 +50,70 @@
 (function () {
   var PHOTO_BUCKET = "photos";
   var SIGNED_URL_TTL = 3600; // 临时链接有效期（秒）
+
+  /* --------------------------------------------------------------------------
+   * 标签
+   * -------------------------------------------------------------------------- */
+
+  var TAG_MAX_LEN = 12;   // 单个标签最长字数
+  var TAG_MAX_COUNT = 6;  // 一张照片最多几个标签
+
+  /* 分隔符：中英文逗号、顿号、中英文分号、空白。
+     一口气打「构图,角度 光线」应该变成三个标签，而不是一个 12 字的长标签 */
+  var TAG_SPLIT = /[,，、;；\s]+/;
+
+  /* ⚠️ 必须清掉的字符：{ } [ ] ( ) " ' \
+   *
+   * 这不是洁癖，是硬约束。SDK 的 contains() 对数组参数是
+   *   this.url.searchParams.append(col, "cs.{" + t.join(",") + "}")
+   * **直接拼串、不做任何转义**。标签里一旦有 , 或 { }，拼出来的 postgREST
+   * 数组字面量就是坏的 —— 轻则筛不出结果，重则语义变成另一个查询。
+   * 方括号/圆括号/引号同理（postgREST 用它们做分组和转义），一并拦掉。
+   * 逗号不在这里清，它在上面的 TAG_SPLIT 里已经被当分隔符切开了。 */
+  var TAG_STRIP = /[{}\[\]()"'\\]/g;
+
+  /** 单个标签归一化：去 # 前缀、清危险字符、截断。空串表示这个标签不要。 */
+  function cleanTag(raw) {
+    if (raw == null) return "";
+
+    // # 只用于展示（界面写成 #低机位），不存进库 —— 存了以后筛选还得再脱一层
+    var s = String(raw).replace(/#/g, "").replace(TAG_STRIP, "").trim();
+    if (!s) return "";
+
+    return s.slice(0, TAG_MAX_LEN);
+  }
+
+  /**
+   * 一批标签归一化：切分 → 逐个清洗 → 去重 → 截断数量。
+   *
+   * 入参是数组时，**每个元素也会再切一次** —— 界面里自定义标签是整串传进来的
+   * （用户可能一次打「构图,角度」），不切就会变成一个带逗号的标签。
+   *
+   * 去重用的 Object.create(null) 而不是 {}：标签叫 "constructor" 时
+   * {} 上的原型属性会让 seen[t] 直接为真，那个标签会被静默丢掉。
+   */
+  function cleanTags(input) {
+    var list = Array.isArray(input) ? input : [input];
+    var seen = Object.create(null);
+    var out = [];
+
+    for (var i = 0; i < list.length; i++) {
+      var parts = String(list[i] == null ? "" : list[i]).split(TAG_SPLIT);
+
+      for (var j = 0; j < parts.length; j++) {
+        var t = cleanTag(parts[j]);
+        if (!t || seen[t]) continue;
+        seen[t] = true;
+        out.push(t);
+      }
+    }
+
+    return out.slice(0, TAG_MAX_COUNT);
+  }
+
+  function tagLimits() {
+    return { len: TAG_MAX_LEN, count: TAG_MAX_COUNT };
+  }
 
   var app = null;
   var auth = null;
@@ -211,6 +280,7 @@
   /**
    * 落库。
    * owner_id 交给数据库默认值 auth.uid()——前端既不传，也传不了别的值。
+   * tags 在这里统一过一道 cleanTags：这是写入的唯一入口，校验放在这里就不会漏。
    */
   async function createPhoto(meta) {
     await init();
@@ -219,7 +289,8 @@
       await db.from("photo_notes").insert({
         storage_path: meta.storagePath,
         title: meta.title || null,
-        note: meta.note || null
+        note: meta.note || null,
+        tags: cleanTags(meta.tags)
       }),
       "保存照片"
     );
@@ -227,19 +298,74 @@
     return res.data;
   }
 
-  /** 当前用户的照片，时间倒序。RLS 保证只会返回本人的行。 */
-  async function listPhotos() {
+  /**
+   * 当前用户的照片，时间倒序。RLS 保证只会返回本人的行。
+   *
+   * options.tag 存在时只返回带这个标签的照片：
+   *   .contains('tags', ['低机位']) → postgREST 的 tags=cs.{低机位}
+   *   → PG 的 tags @> '{低机位}' → 走 photo_notes_tags_idx（GIN）
+   *
+   * ⚠️ 这里用 cleanTags(tag)[0] 而不是 cleanTag(tag)：
+   *   cleanTag 是「已切分之后」的原子清洗，单独喂 '低机位,' 会把逗号留在里面，
+   *   拼成 cs.{低机位,} 就永远筛不出东西。走 cleanTags 会先按分隔符切开，
+   *   脏输入也能收敛成一个干净标签。传进来的值可能来自 URL，不能假设它干净。
+   */
+  async function listPhotos(options) {
     await init();
 
+    var cleaned = options && options.tag ? cleanTags(options.tag) : [];
+    var tag = cleaned[0] || "";
+
+    var query = db
+      .from("photo_notes")
+      .select("id,storage_path,title,note,tags,created_at");
+
+    if (tag) query = query.contains("tags", [tag]);
+
     var res = unwrap(
-      await db
-        .from("photo_notes")
-        .select("id,storage_path,title,note,created_at")
-        .order("created_at", { ascending: false }),
+      await query.order("created_at", { ascending: false }),
       "读取照片列表"
     );
 
     return (res && res.data) || [];
+  }
+
+  /**
+   * 所有标签 + 各自用量，按用量倒序（同量按字面序，保证顺序稳定）。
+   *
+   * 为什么在客户端数，而不是让数据库 group by：
+   *   「SELECT unnest(tags) t, count(*) ... GROUP BY t」这种聚合 postgREST
+   *   表达不了，要在服务端算就得开云函数或直连 SQL —— 这个项目刻意没有云函数
+   *   （见 ARCHITECTURE.md 数据流一节）。
+   *   个人项目量级下（几百条）只取 tags 一列也就是几 KB，客户端数一遍完全够。
+   *   真到几千条再考虑换成服务端聚合，那时接口签名不用变。
+   */
+  async function listTagCounts() {
+    await init();
+
+    var res = unwrap(
+      await db.from("photo_notes").select("tags"),
+      "读取标签"
+    );
+
+    var rows = (res && res.data) || [];
+    var counts = Object.create(null);
+
+    rows.forEach(function (row) {
+      var tags = (row && row.tags) || [];
+      tags.forEach(function (t) {
+        if (!t) return;
+        counts[t] = (counts[t] || 0) + 1;
+      });
+    });
+
+    return Object.keys(counts)
+      .map(function (t) {
+        return { tag: t, count: counts[t] };
+      })
+      .sort(function (a, b) {
+        return b.count - a.count || a.tag.localeCompare(b.tag, "zh");
+      });
   }
 
   /**
@@ -311,6 +437,9 @@
     uploadPhoto: uploadPhoto,
     createPhoto: createPhoto,
     listPhotos: listPhotos,
+    listTagCounts: listTagCounts,
+    cleanTags: cleanTags,
+    tagLimits: tagLimits,
     signPhotoUrls: signPhotoUrls,
     deletePhoto: deletePhoto,
     // 1.5 之后可能会直接用到

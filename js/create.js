@@ -1,10 +1,11 @@
 /**
- * 新增照片页逻辑 —— 0.4 版（表单换成 Vant）
+ * 新增照片页逻辑 —— 0.8 版（加上标签）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
  *   2. 选图 → 前端压缩（长边 1600px、WebP）→ 缩略图 + 体积对照
- *   3. 提交 → 上传到私有桶 {uid}/xxx → 落库 → 回列表
+ *   3. 选标签：预置清单点选 + 输入框加自定义，选中的才提交
+ *   4. 提交 → 上传到私有桶 {uid}/xxx → 落库 → 回列表
  *
  * 三条硬约定：
  *   - 上传失败绝不落库。宁可报错让用户重试，也不要留下一条指向不存在文件的记录。
@@ -13,6 +14,12 @@
  *     HTML 不认自定义标签的自闭合，写成 <van-field /> 会把后面所有同级组件
  *     吞成它的子元素，表现为「写了好几个只渲染出一个」。原生 void 元素
  *     （img / input）不受影响。
+ *
+ * 标签的两个约定：
+ *   - 归一化一律走 P5.cleanTags，**不在页面里自己写一套**。
+ *     它同时管着「写库」和「按标签查询」两条路（SDK 拼 cs.{a,b} 不转义），
+ *     分成两份迟早会漂。见 js/cloudbase.js 的标签一节。
+ *   - 上限（单个 12 字、最多 6 个）从 P5.tagLimits() 读，不在这里抄数字。
  */
 (function () {
   var boot = document.getElementById("boot");
@@ -37,11 +44,31 @@
 
   var createApp = Vue.createApp;
   var ref = Vue.ref;
+  var computed = Vue.computed;
   var P5 = window.P5 || {};
 
   // 长边 1600px 足够看清构图，又不至于把流量耗在像素上
   var MAX_EDGE = 1600;
   var QUALITY = 0.85;
+
+  /**
+   * 预置标签，按维度分两组。
+   *
+   * 为什么要预置：标签一旦自由发散，「低机位」「低角度」「仰拍」会同时存在，
+   * 三个标签指同一件事 —— 参考库最怕的就是这个，翻的时候对不上。
+   * 预置清单负责把词汇收敛住，自定义留给出乎清单之外的东西。
+   *
+   * 1.5 会把这两组拆成 techTags / topicTags 两个字段，那时这里的结构不用改，
+   * 直接把组名映射到字段名即可（见 PRODUCT-1.0.md §八）。
+   */
+  var PRESET_GROUPS = [
+    { name: "技法", tags: ["构图", "角度", "光线", "色彩", "姿势", "镜头"] },
+    { name: "题材", tags: ["环境人像", "室内", "夜景", "街拍", "场景"] }
+  ];
+
+  var PRESET_ALL = PRESET_GROUPS.reduce(function (acc, g) {
+    return acc.concat(g.tags);
+  }, []);
 
   /** 取扩展名，决定桶里的文件名后缀 */
   function extOf(file) {
@@ -81,6 +108,10 @@
         var sizeText = ref("");
         var title = ref("");
         var note = ref("");
+        // 已选标签。数组顺序就是点选顺序，界面直接照着渲染
+        var tags = ref([]);
+        // 自定义标签输入框里的草稿
+        var draft = ref("");
         var busy = ref(false);
         var statusText = ref("保存中…");
         var err = ref(error);
@@ -153,6 +184,76 @@
           return true;
         }
 
+        /* ---------------- 标签 ---------------- */
+
+        var LIMITS = (P5.tagLimits && P5.tagLimits()) || { len: 12, count: 6 };
+
+        var full = computed(function () {
+          return tags.value.length >= LIMITS.count;
+        });
+
+        // 只把「不在预置清单里」的挑出来单独一行。
+        // 预置标签是原地开关的（在它自己那组里高亮），不在这里重复列一份。
+        var customTags = computed(function () {
+          return tags.value.filter(function (t) {
+            return PRESET_ALL.indexOf(t) < 0;
+          });
+        });
+
+        var tagPlaceholder = computed(function () {
+          return full.value ? "已达上限" : "没有想要的？自己加一个";
+        });
+
+        var tagHint = computed(function () {
+          var base =
+            "已选 " + tags.value.length + " / " + LIMITS.count +
+            "，单个标签最多 " + LIMITS.len + " 字";
+          if (full.value) return base + "（已满，先取消一个再加）";
+          return base;
+        });
+
+        function isSelected(t) {
+          return tags.value.indexOf(t) >= 0;
+        }
+
+        /** 预置标签的开关 */
+        function toggle(t) {
+          if (busy.value) return;
+
+          tags.value = isSelected(t)
+            ? tags.value.filter(function (x) {
+                return x !== t;
+              })
+            : P5.cleanTags(tags.value.concat(t));
+
+          err.value = "";
+        }
+
+        /**
+         * 加一个自定义标签。
+         * 直接把草稿整串丢给 cleanTags —— 它负责按 , ， 、 ; 空格 切开，
+         * 所以用户一次打「低机位, 逆光」会变成两个标签，不会变成一个带逗号的。
+         * 顺便它也会把 # 前缀和 { } 引号之类的危险字符清掉。
+         */
+        function addCustom() {
+          if (busy.value || full.value) return;
+
+          var raw = draft.value;
+          if (!raw || !raw.trim()) return;
+
+          var before = tags.value.join("\u0000");
+          tags.value = P5.cleanTags(tags.value.concat(raw));
+          draft.value = "";
+
+          // 输入的全是重复标签 / 全是空字符时，cleanTags 会返回原样的数组。
+          // 这时候用户会以为「点了没反应」，给一句提示。
+          if (tags.value.join("\u0000") === before) {
+            err.value = "这个标签已经有了，或者只有不能用的字符";
+          } else {
+            err.value = "";
+          }
+        }
+
         async function submit() {
           if (busy.value) return;
 
@@ -171,7 +272,8 @@
             await P5.createPhoto({
               storagePath: path,
               title: title.value,
-              note: note.value
+              note: note.value,
+              tags: tags.value
             });
 
             location.replace("index.html");
@@ -189,6 +291,16 @@
           sizeText: sizeText,
           title: title,
           note: note,
+          tags: tags,
+          draft: draft,
+          presetGroups: PRESET_GROUPS,
+          customTags: customTags,
+          full: full,
+          tagPlaceholder: tagPlaceholder,
+          tagHint: tagHint,
+          isSelected: isSelected,
+          toggle: toggle,
+          addCustom: addCustom,
           busy: busy,
           statusText: statusText,
           error: err,

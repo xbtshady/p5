@@ -50,13 +50,70 @@
             ></van-field>
             <van-field
               v-model="note"
-              label="为什么"
+              label="描述"
               type="textarea"
               autosize
-              placeholder="哪一点让我停下来多看了一眼"
               :disabled="busy"
             ></van-field>
           </van-cell-group>
+        </div>
+
+        <div class="field">
+          <span class="label">标签</span>
+
+          <div class="tag-picker">
+            <div class="tag-group" v-for="g in presetGroups" :key="g.name">
+              <span class="tag-group-name">{{ g.name }}</span>
+              <div class="tag-row">
+                <!-- 预置标签原地开关：选中的就在这儿高亮，不再往下面重复列一份 -->
+                <button
+                  v-for="t in g.tags"
+                  :key="t"
+                  type="button"
+                  class="tag-chip"
+                  :class="{ 'is-on': isSelected(t) }"
+                  :disabled="busy"
+                  :aria-pressed="isSelected(t) ? 'true' : 'false'"
+                  @click="toggle(t)"
+                >{{ t }}</button>
+              </div>
+            </div>
+
+            <div class="tag-group" v-if="customTags.length">
+              <span class="tag-group-name">自定义</span>
+              <div class="tag-row">
+                <!-- 点一下就是取消选择。× 用 span 不用 button ——
+                     按钮套按钮是非法 HTML，浏览器会把内层拆出来 -->
+                <button
+                  v-for="t in customTags"
+                  :key="t"
+                  type="button"
+                  class="tag-chip is-on"
+                  :disabled="busy"
+                  :aria-label="'取消标签 ' + t"
+                  @click="toggle(t)"
+                ><span>{{ t }}</span><span class="tag-x">×</span></button>
+              </div>
+            </div>
+
+            <div class="tag-add">
+              <input
+                v-model="draft"
+                type="text"
+                :placeholder="tagPlaceholder"
+                :disabled="busy || full"
+                @keydown.enter.prevent="addCustom"
+              />
+              <button
+                class="text-btn"
+                type="button"
+                :disabled="busy || full || !draft.trim()"
+                @click="addCustom"
+              >添加</button>
+            </div>
+
+            <p class="tag-hint">{{ tagHint }}</p>
+          </div>
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>

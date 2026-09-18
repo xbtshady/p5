@@ -115,6 +115,23 @@ storage.from('photos').remove([path])  ← RLS: 路径首段 = uid
 
 **为什么先删行**：反过来先删文件的话，删行一旦失败就留下指向不存在文件的记录（界面破图），比孤儿文件难处理得多。
 
+标签（0.7–0.9）：
+
+```
+新增页选标签（预置点选 + 自定义输入）
+ ↓  归一化只走 P5.cleanTags 一道：切分 / 去 # / 清危险字符 / 去重 / 截断
+落库 photo_notes.tags（text[]）
+ ↓
+按标签查：db.from(...).contains('tags', [tag])
+ ↓  → postgREST 的 tags=cs.{低机位} → PG 的 tags @> '{低机位}' → GIN 索引
+列表页读取（RLS 只返回本人的行，created_at 倒序）
+
+标签云（探索区）：select('tags') 只取这一列，客户端 unnest 计数
+（postgREST 表达不了 GROUP BY unnest，见 §4.2）
+```
+
+**归一化为什么必须只有一道**：`contains()` 对数组参数是 `tags.join(',')` 直接拼串、**不做转义**。标签里混进 `, { } "` 会把 postgREST 的数组字面量拼坏。所以清洗放在 `js/cloudbase.js` 里、写库和查询两条路都过它——分成两份迟早漂移。
+
 **1.5 接入 AI 后的扩展点**：
 
 ```
@@ -124,15 +141,15 @@ Cloud Function  ← 1.5 新增
  ↓
 AI API（OpenAI 兼容 /chat/completions）
  ↓
-分析结果  →  写入 photo_notes.observation
-完整对话  →  写入 photo_notes.ai_thread
+分析结果  →  写回 photo_notes（具体字段 1.5 定；
+             早期文档里的 observation / ai_thread 已随字段收敛一起删掉）
 ```
 
 ---
 
 ## 四、数据模型
 
-### 4.1 业务表 `photo_notes`（0.3 已实现）
+### 4.1 业务表 `photo_notes`（0.3 建，0.7 加 tags）
 
 ```sql
 CREATE TABLE public.photo_notes (
@@ -142,11 +159,16 @@ CREATE TABLE public.photo_notes (
   title        TEXT,
   note         TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- 0.7 加入，见迁移 20260918075506_add_tags.sql
+  tags         TEXT[]      NOT NULL DEFAULT '{}'
 );
 
 CREATE INDEX photo_notes_owner_created_idx
   ON public.photo_notes (owner_id, created_at DESC);
+
+CREATE INDEX photo_notes_tags_idx
+  ON public.photo_notes USING GIN (tags);
 ```
 
 | 字段 | 类型 | 说明 |
@@ -155,7 +177,8 @@ CREATE INDEX photo_notes_owner_created_idx
 | `owner_id` | text | 归属人，**默认值取自 JWT**（`auth.uid()`），前端不传也传不了 |
 | `storage_path` | text | 桶内路径（不是 URL）。私有桶没有直链，用前要换签名 URL |
 | `title` | text | 标题，可选 |
-| `note` | text | 直觉（"这角度没想过"），可选 |
+| `note` | text | 描述（"这角度没想过"），可选 |
+| `tags` | text[] | 标签数组，0.7 加入。前端传前必须过 `P5.cleanTags` |
 | `created_at` | timestamptz | 创建时间 |
 | `updated_at` | timestamptz | 更新时间 |
 
@@ -165,21 +188,15 @@ CREATE INDEX photo_notes_owner_created_idx
 
 **命名约定**：物理列用 `snake_case`（PG 惯例）；前端 JS 里用 `camelCase`，在 `js/cloudbase.js` 这一层做映射，业务代码不感知。
 
-### 4.2 1.0 待补字段
+### 4.2 标签为什么是 `text[]`（0.7 已落地）
 
-`observation` / `next_attempt` / `source` / `tags` / `ai_thread` 尚未建列。0.3 只落了「照片 + 标题 + 一句话」，是因为核心循环先要跑顺；这些字段的语义定义见 [PRODUCT-1.0.md](PRODUCT-1.0.md) §4。
+**不用关联表**：1.0 对标签只需要两件事——「按标签筛选」和「列出所有标签及用量」。PG 的数组类型配 GIN 索引就能兜住，不必引入 `photo_tags` 中间表 + JOIN + 插入顺序问题。等 1.5 真要拆技法/题材维度、要做标签统计，再迁移成 `tech_tags` / `topic_tags` 两列或关联表。
 
-```sql
--- 1.0 计划（未执行）
-ALTER TABLE public.photo_notes
-  ADD COLUMN observation  TEXT,
-  ADD COLUMN next_attempt TEXT,
-  ADD COLUMN source       TEXT,
-  ADD COLUMN tags         TEXT[] NOT NULL DEFAULT '{}',
-  ADD COLUMN ai_thread    JSONB  NOT NULL DEFAULT '[]';
-```
+**不用 jsonb**：`tags` 是有序去重的字符串集合，`text[]` 的包含运算符 `@>` 正好对上 GIN 的 `array_ops` 操作符类；jsonb 只能走 `jsonb_ops`，还得多包一层字面量语法。
 
-**标签为什么用 `text[]`**：1.0 只需要"按标签筛选"和"列出所有标签"，PG 的数组类型配合 GIN 索引足够，不必开关联表。等 1.5 真的要拆技法/题材维度、要做标签统计，再迁移成 `tech_tags` / `topic_tags` 两列或关联表。
+**标签统计在客户端做，不在数据库**：`SELECT unnest(tags) t, count(*) ... GROUP BY t` 这种聚合 postgREST 表达不了，要在服务端算就得开云函数或直连 SQL——这个项目刻意没有云函数（见 §3）。个人项目量级下（几百条）只取 `tags` 一列也就几 KB，客户端数一遍完全够；真到几千条再换服务端聚合，`P5.listTagCounts()` 的签名不用变。
+
+**⚠️ 标签里的危险字符**：SDK 的 `contains()` 对数组参数是 `tags.join(',')` 直接拼串，不做任何转义。`, { } [ ] ( ) " '` 这些字符会把 postgREST 的查询拼坏（轻则筛不出，重则语义变成另一个查询）。防线在 `js/cloudbase.js` 的 `cleanTags`：逗号当分隔符切开，其余危险字符直接清掉，单个标签限 12 字、一张照片最多 6 个。**别在前端页面里另写一套清洗**。
 
 ### 4.3 已删除：0.1 的 `app_settings`
 
@@ -247,7 +264,9 @@ CREATE POLICY p5_notes_delete ON public.photo_notes
 | 0.3 | **实际落地**：`owner_id = auth.uid()` 行级隔离 + 私有桶路径隔离（两层，见 §5.6） |
 | 0.4 | 无安全变更（只改样式） |
 | 0.5 | 补 `DELETE`：表加 `GRANT DELETE` + 策略，`storage.objects` 加 DELETE 策略（判据与 0.3 相同） |
-| 1.0 | 保持现有隔离；新增字段不改变策略 |
+| 0.7 | 加 `tags` 列：GRANT 是按表授的，**新列自动继承**，GRANT / RLS 一条没动 |
+| 0.8 / 0.9 | 标签写入口 / 读出口：无安全变更，筛选仍走 RLS 之上的 `contains` |
+| 1.0 | 搜索（客户端过滤标题/描述/标签），无安全变更 |
 | 1.5 | Cloud Function BFF，前端不直连 PG |
 | 2.0 | 完整鉴权（多端/分享需求出现时再谈） |
 
@@ -583,19 +602,20 @@ CloudBase 官方支持连接 Git 仓库。无构建项目直接部署静态文�
 - 新增 Cloud Function：`analyzePhoto`
 - 前端调用 CF，传 `storage_path`（换签名 URL 后交给 AI）+ 用户的"想问什么"
 - CF 调 OpenAI 兼容 `/chat/completions`（复用 2.0 产品的 p2.ai 配置：apiKey / baseUrl / model）
-- AI 输出写入 `photo_notes.observation`
-- 完整对话存 `photo_notes.ai_thread`
+- 分析结果写回 `photo_notes`——早期文档里的 `observation` / `ai_thread` 字段已随字段收敛删掉，
+  具体落到哪列 1.5 设计时再定（候选：并入 `note`，或单独开一列）
 
 ### 1.5 标签分类
 
 - `tags` 拆为 `tech_tags` / `topic_tags` 两个数组
 - 迁移：按预置标签清单自动分类（构图/角度/光线 → tech_tags；环境人像/室内/夜景 → topic_tags）
+- 预置清单在 `js/create.js` 的 `PRESET_GROUPS`，已经是按维度分组的，届时直接映射到字段名
 
 ### 2.0 语义搜索
 
 - **这一条换 PG 之后反而更好走**：CloudBase PG 原生支持 `pgvector`，不需要额外接一个向量数据库
 - 加一列 `embedding vector(1024)`，建 HNSW 索引
-- 索引 `note` + `observation`
+- 索引 `note` + `title` + 标签
 - 支持"找出所有和人物与环境关系有关的照片"这类语义检索
 
 ### 2.0 BFF 鉴权

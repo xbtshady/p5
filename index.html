@@ -33,8 +33,36 @@
     <main class="feed-wrap">
       <p v-if="error" class="error">{{ error }}</p>
 
+      <!-- 探索：标签云，用来按主题聚合。
+           这是「以后拍照前查参考」的主要入口 —— 想练低机位就点 #低机位，
+           比按时间往下翻有效得多。卡片上的标签点了走的是同一个动作。 -->
+      <section class="explore" v-if="tagCounts.length || activeTag">
+        <h2 class="explore-title">探索</h2>
+
+        <div class="tag-row">
+          <button
+            v-for="t in tagCounts"
+            :key="t.tag"
+            type="button"
+            class="tag-chip"
+            :class="{ 'is-on': t.tag === activeTag }"
+            :disabled="busy"
+            :aria-pressed="t.tag === activeTag ? 'true' : 'false'"
+            @click="filterBy(t.tag)"
+          >{{ t.tag }}<span class="tag-count">{{ t.count }}</span></button>
+        </div>
+
+        <!-- 筛选态要能一眼看出来「现在不是全部」，否则会以为照片丢了 -->
+        <p class="explore-active" v-if="activeTag">
+          <span>只看 #{{ activeTag }}</span>
+          <button class="text-btn" type="button" :disabled="busy" @click="filterBy(activeTag)">
+            清除
+          </button>
+        </p>
+      </section>
+
       <p v-if="!error && !photos.length" class="empty">
-        还没有照片。点右上角 ＋ 记下第一张。
+        {{ activeTag ? '这个标签下还没有照片。' : '还没有照片。点右上角 ＋ 记下第一张。' }}
       </p>
 
       <ul class="feed" v-if="photos.length">
@@ -73,6 +101,21 @@
           <div class="shot-body">
             <p class="shot-title" v-if="p.title">{{ p.title }}</p>
             <p class="shot-note" v-if="p.note">{{ p.note }}</p>
+
+            <!-- 卡片上的标签也是筛选入口，点一下看同标签的其它照片。
+                 用 button 不用 span —— 键盘才 Tab 得到（触屏上没差别） -->
+            <div class="shot-tags" v-if="p.tags.length">
+              <button
+                v-for="t in p.tags"
+                :key="t"
+                type="button"
+                class="tag-chip"
+                :class="{ 'is-on': t === activeTag }"
+                :disabled="busy"
+                @click="filterBy(t)"
+              >{{ t }}</button>
+            </div>
+
             <p class="shot-date">{{ p.date }}</p>
           </div>
         </li>
