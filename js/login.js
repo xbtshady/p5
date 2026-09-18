@@ -49,6 +49,9 @@
       setup: function () {
         var username = ref("");
         var password = ref("");
+        // 密码可见性：小眼睛切换。放在 setup 里而不是操作 DOM 的 type 属性，
+        // 这样状态归 Vue 管，重渲染不会把它冲掉
+        var showPw = ref(false);
         var busy = ref(false);
         var error = ref(preError);
 
@@ -71,6 +74,7 @@
         return {
           username: username,
           password: password,
+          showPw: showPw,
           busy: busy,
           error: error,
           submit: submit

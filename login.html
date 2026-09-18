@@ -41,14 +41,38 @@
           />
 
           <label class="sr-only" for="login-password">密码</label>
-          <input
-            id="login-password"
-            v-model="password"
-            type="password"
-            placeholder="请输入密码"
-            autocomplete="current-password"
-            :disabled="busy"
-          />
+          <div class="pw-wrap">
+            <input
+              id="login-password"
+              v-model="password"
+              :type="showPw ? 'text' : 'password'"
+              placeholder="请输入密码"
+              autocomplete="current-password"
+              :disabled="busy"
+            />
+            <!-- type="button" 必须写：它在 form 里，默认是 submit，
+                 一点「小眼睛」就把表单提交了 -->
+            <button
+              type="button"
+              class="pw-toggle"
+              :aria-label="showPw ? '隐藏密码' : '显示密码'"
+              :aria-pressed="showPw ? 'true' : 'false'"
+              @click="showPw = !showPw"
+            >
+              <svg v-if="showPw" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                   aria-hidden="true">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                   aria-hidden="true">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+              </svg>
+            </button>
+          </div>
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>
