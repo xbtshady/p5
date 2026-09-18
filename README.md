@@ -2,7 +2,6 @@
 
 一本摄影参考手册（人像为主）：攒案例、AI 标好档位和技巧，以后拍照前翻。
 
-线上：https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com
 当前版本 0.10。**进度和规划只在 [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md) 的进度表里维护**，这里不重复一份。
 
 ## 跑起来
@@ -13,8 +12,7 @@ python -m http.server 5173     # 本地预览（file:// 有跨域问题，必须
 ```
 
 - `js/config.js` 不入库。新机器补一份：
-  `curl -o js/config.js https://p5-d4g6dukvb86de1377-1312626975.tcloudbaseapp.com/js/config.js`
-  （它已随站点上线，下载即最新；或 `cp js/config.example.js js/config.js` 手填）
+  `cp js/config.example.js js/config.js`，再填 `envId` / `accessKey`
 - 部署**只能用 `./deploy.sh`**：CLI 直传会把只读的 `.git` 一起扫，报
   `Path has no read/write permissions`；脚本是先拷到临时目录再上传
 - `accessKey` 是 Publishable Key，只标识应用、放前端是安全的（门禁在服务端 Origin 校验 + RLS）；
