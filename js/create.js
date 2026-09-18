@@ -201,7 +201,7 @@
         });
 
         var tagPlaceholder = computed(function () {
-          return full.value ? "已达上限" : "没有想要的？自己加一个";
+          return full.value ? "已达上限" : "请输入标签";
         });
 
         var tagHint = computed(function () {

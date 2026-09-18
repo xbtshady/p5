@@ -956,6 +956,25 @@ input[type="file"]:hover::file-selector-button {
   font-family: inherit;
 }
 
+/* 全局给裸 input/textarea 加的边框、白底、圆角会漏进 Vant 的行内控件，
+   在字段行里浮出一个「框中框」（登录页用户名那颗药丸就是它）。
+   行内控件回到素净状态，边框交给外层 van-cell-group 画 */
+.van-field .van-field__control {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.van-field .van-field__control:focus {
+  box-shadow: none;
+}
+
+/* 全局 input:disabled 的 0.6 透明度叠加在 Vant 自带的置灰上，会淡到看不清 */
+.van-field .van-field__control:disabled {
+  opacity: 1;
+}
+
 /* 卡片里的 Vant 组件不吃自己那套 16px 外边距，交给外层 .feed-wrap 控制 */
 .vant-block .van-cell-group--inset {
   margin: 0;
