@@ -460,7 +460,9 @@ p5/
 │       ├── 20260915082200_init_app_settings.sql        # 0.1（已删表）
 │       ├── 20260915091200_drop_app_settings.sql        # 0.2
 │       ├── 20260916011500_init_photo_notes.sql         # 0.3
-│       └── 20260916033700_add_delete_policies.sql      # 0.5
+│       ├── 20260916033700_add_delete_policies.sql      # 0.5
+│       ├── 20260918075506_add_tags.sql                 # 0.7
+│       └── 20260918180000_add_ai_tips_and_clear_tags.sql  # 0.10
 ├── login.html                  # 登录页（入口）
 ├── index.html                  # 照片流（点图全屏看、卡片右上角删除）
 ├── create.html                 # 新增照片
@@ -471,6 +473,7 @@ p5/
 │   ├── config.js               # 真实配置 envId + accessKey（不入库）
 │   ├── cloudbase.js            # CloudBase 封装（登录 / 上传 / 落库 / 列表 / 签名 URL / 删除）
 │   ├── facets.js               # 0.11：维度字典 + 提示词模板 + 回填解析器（纯函数，可单测）
+│   ├── facets.test.js          # facets.js 的断言（node js/facets.test.js，零依赖）
 │   ├── login.js                # 登录页逻辑
 │   ├── app.js                  # 照片流逻辑
 │   └── create.js               # 新增页逻辑

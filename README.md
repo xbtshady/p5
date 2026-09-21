@@ -2,13 +2,14 @@
 
 一本摄影参考手册（人像为主）：攒案例、AI 标好档位和技巧，以后拍照前翻。
 
-当前版本 0.10。**进度和规划只在 [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md) 的进度表里维护**，这里不重复一份。
+当前版本 0.11。**进度和规划只在 [docs/PRODUCT-1.0.md](docs/PRODUCT-1.0.md) 的进度表里维护**，这里不重复一份。
 
 ## 跑起来
 
 ```bash
 python -m http.server 5173     # 本地预览（file:// 有跨域问题，必须走 HTTP）
 ./deploy.sh                    # 部署
+node js/facets.test.js         # 校验维度字典 / 提示词 / 解析器，零依赖、不用装东西
 ```
 
 - `js/config.js` 不入库。新机器补一份：
