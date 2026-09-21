@@ -1,5 +1,5 @@
 /**
- * CloudBase 封装 —— 0.9 版（登录 + 照片存取 + 删除 + 标签）
+ * CloudBase 封装 —— 0.12 版（登录 + 照片存取 + 删除 + 维度档位）
  *
  * 职责：
  *   1. 初始化 SDK
@@ -19,8 +19,8 @@
  *   createPhoto(meta)           → row           落库（meta.tags 会先过 cleanTags）
  *   listPhotos({ tag })         → rows          当前用户的照片列表，可按标签筛
  *   listTagCounts()             → [{tag,count}] 标签用量，倒序（客户端聚合，见函数注释）
- *   cleanTags(text|array)       → string[]      标签归一化（切分/去空/去重/截断）
- *   tagLimits()                 → {len,count}   标签的长度与数量上限，给界面做提示
+ *   cleanTags(text|array)       → string[]      档位归一化（切分/去空/去重/截断，含冒号拦截）
+ *   tagLimits()                 → {len,count}   档位的长度与数量上限，给界面做提示
  *   signPhotoUrls(paths)        → {path: url}   批量换临时访问链接
  *   deletePhoto(id, path)       → void          删除记录 + 桶里的文件（先删行再删文件）
  *
@@ -55,8 +55,11 @@
    * 标签
    * -------------------------------------------------------------------------- */
 
-  var TAG_MAX_LEN = 12;   // 单个标签最长字数
-  var TAG_MAX_COUNT = 6;  // 一张照片最多几个标签
+  /* 0.12 起标签是「维度:值」（如 镜头:中长焦），两个上限都得按这个重新算：
+     长度 12 偏紧，一被截断编码就坏了（decode 会拆出半个值），放到 16；
+     数量 6 是自由标签时代的上限，现在的上界是「每个维度一个值」= 6 个基础 + AI 追加的若干，同样放到 16。 */
+  var TAG_MAX_LEN = 16;   // 单个档位最长字数（含「维度:」前缀）
+  var TAG_MAX_COUNT = 16; // 一张照片最多几个档位
 
   /* 分隔符：中英文逗号、顿号、中英文分号、空白。
      一口气打「构图,角度 光线」应该变成三个标签，而不是一个 12 字的长标签 */
@@ -72,13 +75,22 @@
    * 逗号不在这里清，它在上面的 TAG_SPLIT 里已经被当分隔符切开了。 */
   var TAG_STRIP = /[{}\[\]()"'\\]/g;
 
-  /** 单个标签归一化：去 # 前缀、清危险字符、截断。空串表示这个标签不要。 */
+  /**
+   * 单个标签归一化：去 # 前缀、清危险字符、截断。空串表示这个标签不要。
+   *
+   * ⚠️ 冒号是「维度:值」的分隔符，**值里再出现冒号会把维度拆错**。
+   * 这里保留第一个冒号（维度和值之间那个），它之后的冒号全清掉。
+   * 界面产出的编码由 P5Facets.encode 保证合法，这道是防别的写入路径和手工改库。
+   */
   function cleanTag(raw) {
     if (raw == null) return "";
 
     // # 只用于展示（界面写成 #低机位），不存进库 —— 存了以后筛选还得再脱一层
     var s = String(raw).replace(/#/g, "").replace(TAG_STRIP, "").trim();
     if (!s) return "";
+
+    var sep = s.indexOf(":");
+    if (sep > 0) s = s.slice(0, sep + 1) + s.slice(sep + 1).replace(/:/g, "");
 
     return s.slice(0, TAG_MAX_LEN);
   }

@@ -950,28 +950,9 @@ input[type="file"]:hover::file-selector-button {
   outline-offset: 2px;
 }
 
-/* 自定义标签上的取消标记。用 span 不用 button —— 按钮套按钮是非法 HTML */
-.tag-x {
-  font-size: 14px;
-  line-height: 1;
-  opacity: 0.8;
-}
-
-/* 输入行。align-items 保持默认的 stretch，输入框和添加键高度自动对齐，
-   不用手算两边的 padding —— 手算的那种一改字号就错位 */
-.tag-add {
-  display: flex;
-  gap: 8px;
-}
-
-/* 覆盖全局 input 的 width: 100%：在 flex 里宽度该由 flex-basis 决定。
-   ⚠️ min-width: 0 不能省 —— flex 子项默认 min-width: auto，
-   输入框会被自己的内容撑住，长占位文字时整行横向溢出 */
-.tag-add input {
-  flex: 1 1 0;
-  min-width: 0;
-  padding: 9px 12px;
-}
+/* 0.12 删掉了这里的 .tag-x 和 .tag-add（输入行）：档位的值不再自由输入，
+   界面上没有输入框、也没有单个标签的取消标记 —— 取消就是再点一下那个胶囊。
+   真要找回来，去 git 历史里翻 0.11 那版。 */
 
 .tag-hint {
   margin: 0;

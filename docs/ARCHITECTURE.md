@@ -222,7 +222,7 @@ CREATE INDEX photo_notes_tags_idx
 
 **统计在客户端做，不在数据库**：`SELECT unnest(tags) t, count(*) ... GROUP BY t` 这种聚合 postgREST 表达不了，要在服务端算就得开云函数或直连 SQL——这个项目刻意没有云函数（见 §3）。个人项目量级下（几百条）只取 `tags` 一列也就几 KB，客户端 split 一遍完全够；真到几千条再换服务端聚合，接口签名不用变。
 
-**⚠️ 值里的危险字符**：SDK 的 `contains()` 对数组参数是 `tags.join(',')` 直接拼串，不做任何转义。`, { } [ ] ( ) " '` 这些字符会把 postgREST 的查询拼坏（轻则筛不出，重则语义变成另一个查询）。防线在 `js/cloudbase.js` 的 `cleanTags`。**0.12 起要多拦一个 `:`**——写入口从那版开始产出 `维度:值`，值里再冒出一个冒号会把维度拆错。**别在前端页面里另写一套清洗**。
+**⚠️ 值里的危险字符**：SDK 的 `contains()` 对数组参数是 `tags.join(',')` 直接拼串，不做任何转义。`, { } [ ] ( ) " '` 这些字符会把 postgREST 的查询拼坏（轻则筛不出，重则语义变成另一个查询）。防线在 `js/cloudbase.js` 的 `cleanTags`。**0.12 已多拦一个 `:`**——写入口从那版开始产出 `维度:值`，值里再冒出一个冒号会把维度拆错（`cleanTag` 保留第一个冒号，它之后的全清掉）。**别在前端页面里另写一套清洗**。
 
 ### 4.3 已删除：0.1 的 `app_settings`
 
@@ -620,6 +620,9 @@ CloudBase 官方支持连接 Git 仓库。无构建项目直接部署静态文�
 <script src="js/cloudbase.js"></script>
 <script src="js/app.js"></script>
 ```
+
+`create.html` 的脚本多一个 `js/facets.js`（维度字典，零依赖纯函数，排在 cloudbase.js 之后、
+页面脚本之前）。0.15 起首页也要引它（卡片显示档位、探索区分面筛选都读同一份字典）。
 
 **脚本都不能加 `defer` / `async`**：`js/*.js` 里判断 `typeof Vue === "undefined"` / `typeof vant === "undefined"` 做兜底提示，顺序打乱会误报。同理 `js/config.js` 要排在 `js/cloudbase.js` 之前。
 

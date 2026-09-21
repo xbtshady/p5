@@ -17,6 +17,11 @@
  *   encode(name, value)      → "镜头:中长焦"；不合法返回 ""
  *   decode(tag)              → {name, value} | null
  *   validateValue(value)     → "" | 一句中文原因（给界面做提示）
+ *   fromTags(tags)           → [{name, value}] 编辑态（AI 结果也是这个形状）
+ *   toTags(facets)           → string[] 写库用；编不出来的丢掉
+ *   hasFacet(facets, n, v)   → bool（界面判断某个值有没有被选中）
+ *   isMulti(name)            → bool（这个维度能不能多选）
+ *   toggle(facets, n, v)     → 新的编辑态（点选 / 取消，单选维度自动顶掉旧值）
  *   poolFromTags(tags)       → [{name, values}]，只含非基础维度
  *   buildPrompt(existing)    → string，发给 AI 的完整提示词
  *   parseReply(text)         → {ok, facets, tips, error, raw}
@@ -130,6 +135,95 @@
     if (!v) return "不能为空";
     if (RESERVED.test(v)) return "不能含空格、冒号或括号引号（全角半角都不行）";
     return "";
+  }
+
+  /* --------------------------------------------------------------------------
+   * 编辑态
+   *
+   * 编辑态 = `[{name, value}]`，一条对应库里一条 tag —— **和 parseReply 的输出同一个形状**。
+   * 所以「AI 返回的结构化数据」和「人在界面上点选」走的是同一套更新函数，
+   * 0.13 接 AI 时只是多一个数据来源，不用另写一套。
+   * -------------------------------------------------------------------------- */
+
+  /** tags → 编辑态。拆不出来的（旧自由标签、脏数据）跳过，界面不显示 */
+  function fromTags(tags) {
+    return (Array.isArray(tags) ? tags : [])
+      .map(function (t) {
+        return decode(t);
+      })
+      .filter(function (d) {
+        return !!d;
+      });
+  }
+
+  /**
+   * 编辑态 → tags（写库前用）。
+   * encode 不通过的**丢掉** —— 宁可少一个档位，也不要一条坏编码进库。
+   * 这里不去重同样的 name+value 之外的任何东西：每个维度的单选约束由 toggle 保证，
+   * 数量上限由 cleanTags 兜底。
+   */
+  function toTags(facets) {
+    var seen = Object.create(null);
+    var out = [];
+
+    (Array.isArray(facets) ? facets : []).forEach(function (f) {
+      if (!f) return;
+      var tag = encode(f.name, f.value);
+      if (!tag || seen[tag]) return;
+      seen[tag] = true;
+      out.push(tag);
+    });
+
+    return out;
+  }
+
+  function hasFacet(facets, name, value) {
+    var n = String(name == null ? "" : name);
+    var v = String(value == null ? "" : value);
+
+    return (Array.isArray(facets) ? facets : []).some(function (f) {
+      return f && f.name === n && f.value === v;
+    });
+  }
+
+  /**
+   * 这个维度能不能多选。
+   * 基础维度看定义（只有姿势是多选）；**6 个之外的维度都按多值处理** ——
+   * 一个维度用过多少个值，本身就说明它允许多值。
+   */
+  function isMulti(name) {
+    var d = defOf(name);
+    return d ? !!d.multi : true;
+  }
+
+  /**
+   * 点一个值：已选就取消，没选就加上。
+   *
+   * **单选维度会自动顶掉同维度的旧值** —— 「光线」不可能既是侧光又是逆光，
+   * 留着两个只会让筛选出来的结果自相矛盾。
+   * 数组顺序就是点选顺序，界面照着渲染即可。
+   */
+  function toggle(facets, name, value) {
+    var list = Array.isArray(facets) ? facets.slice() : [];
+    var n = String(name == null ? "" : name);
+    var v = String(value == null ? "" : value);
+
+    if (!n || !v) return list;
+
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].name === n && list[i].value === v) {
+        list.splice(i, 1);
+        return list;
+      }
+    }
+
+    if (!isMulti(n)) {
+      list = list.filter(function (f) {
+        return !f || f.name !== n;
+      });
+    }
+    list.push({ name: n, value: v });
+    return list;
   }
 
   /**
@@ -481,6 +575,11 @@
     encode: encode,
     decode: decode,
     validateValue: validateValue,
+    fromTags: fromTags,
+    toTags: toTags,
+    hasFacet: hasFacet,
+    isMulti: isMulti,
+    toggle: toggle,
     poolFromTags: poolFromTags,
     buildPrompt: buildPrompt,
     parseReply: parseReply

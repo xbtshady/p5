@@ -1,10 +1,10 @@
 /**
- * 新增照片页逻辑 —— 0.8 版（加上标签）
+ * 新增照片页逻辑 —— 0.12 版（标签换成维度档位）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
  *   2. 选图 → 前端压缩（长边 1600px、WebP）→ 缩略图 + 体积对照
- *   3. 选标签：预置清单点选 + 输入框加自定义，选中的才提交
+ *   3. 选档位：6 个基础维度，值只能从候选里点选
  *   4. 提交 → 上传到私有桶 {uid}/xxx → 落库 → 回列表
  *
  * 三条硬约定：
@@ -15,11 +15,14 @@
  *     吞成它的子元素，表现为「写了好几个只渲染出一个」。原生 void 元素
  *     （img / input）不受影响。
  *
- * 标签的两个约定：
- *   - 归一化一律走 P5.cleanTags，**不在页面里自己写一套**。
- *     它同时管着「写库」和「按标签查询」两条路（SDK 拼 cs.{a,b} 不转义），
- *     分成两份迟早会漂。见 js/cloudbase.js 的标签一节。
- *   - 上限（单个 12 字、最多 6 个）从 P5.tagLimits() 读，不在这里抄数字。
+ * 档位这件事和 js/facets.js 怎么分工（别越界）：
+ *   - **页面不写死任何值域**：有哪些维度、每个维度有哪些值，全从 P5Facets.BASE 来。
+ *     改维度只改那份字典，界面和提示词自动跟着变
+ *   - 点选 / 取消 / 单选顶替的规则在 P5Facets.toggle，页面只管调它
+ *   - 编辑态是 [{name, value}]，**和 AI 回填（parseReply）的输出同一个形状** ——
+ *     0.13 接 AI 时是把结构化数据喂进同一套更新函数，不用再写一套
+ *   - 写库前先过 P5Facets.toTags，再交给 P5.createPhoto（后者还会过 cleanTags ——
+ *     那是写入的唯一入口，别在页面里另写一套清洗）
  */
 (function () {
   var boot = document.getElementById("boot");
@@ -41,34 +44,35 @@
     bootFail("图片压缩库加载失败，请检查网络后刷新");
     return;
   }
+  if (!window.P5Facets) {
+    bootFail("维度字典加载失败，请检查网络后刷新");
+    return;
+  }
 
   var createApp = Vue.createApp;
   var ref = Vue.ref;
   var computed = Vue.computed;
   var P5 = window.P5 || {};
+  var P5F = window.P5Facets;
 
   // 长边 1600px 足够看清构图，又不至于把流量耗在像素上
   var MAX_EDGE = 1600;
   var QUALITY = 0.85;
 
   /**
-   * 预置标签，按维度分两组。
+   * 基础维度分组，直接就是字典里的那 6 个。
    *
-   * 为什么要预置：标签一旦自由发散，「低机位」「低角度」「仰拍」会同时存在，
-   * 三个标签指同一件事 —— 参考库最怕的就是这个，翻的时候对不上。
-   * 预置清单负责把词汇收敛住，自定义留给出乎清单之外的东西。
-   *
-   * 1.5 会把这两组拆成 techTags / topicTags 两个字段，那时这里的结构不用改，
-   * 直接把组名映射到字段名即可（见 PRODUCT-1.0.md §八）。
+   * 单选还是多选不在这里判断 —— 那是 P5Facets.toggle 的事，这里只负责显示个提示，
+   * 免得用户不知道「姿势」能选好几个。
+   * AI 追加的维度在 bootstrap 里从库里聚合后拼在它后面（extraGroups）。
    */
-  var PRESET_GROUPS = [
-    { name: "技法", tags: ["构图", "角度", "光线", "色彩", "姿势", "镜头"] },
-    { name: "题材", tags: ["环境人像", "室内", "夜景", "街拍", "场景"] }
-  ];
-
-  var PRESET_ALL = PRESET_GROUPS.reduce(function (acc, g) {
-    return acc.concat(g.tags);
-  }, []);
+  var BASE_GROUPS = P5F.BASE.map(function (f) {
+    return {
+      name: f.name,
+      values: f.values,
+      label: f.multi ? f.name + "（可多选）" : f.name
+    };
+  });
 
   /** 取扩展名，决定桶里的文件名后缀 */
   function extOf(file) {
@@ -98,6 +102,25 @@
       return;
     }
 
+    /**
+     * 追加维度：库里用过的非基础维度（道具 / 场景 / 色调…）。
+     * 现在多半是空的 —— 0.13 接上 AI 之后，AI 开的新维度会出现在这里，界面不用再改。
+     * 拿不到不该挡住新增：基础 6 个照常可用，所以这里只 warn 不报错。
+     */
+    var extraGroups = [];
+    try {
+      var counts = await P5.listTagCounts();
+      extraGroups = P5F.poolFromTags(
+        counts.map(function (c) {
+          return c.tag;
+        })
+      ).map(function (p) {
+        return { name: p.name, values: p.values, label: p.name };
+      });
+    } catch (pe) {
+      console.warn("[P5] 追加维度读取失败，只显示基础维度:", pe);
+    }
+
     var app = createApp({
       setup: function () {
         // van-uploader 自己管的列表（负责显示缩略图）
@@ -108,10 +131,8 @@
         var sizeText = ref("");
         var title = ref("");
         var note = ref("");
-        // 已选标签。数组顺序就是点选顺序，界面直接照着渲染
-        var tags = ref([]);
-        // 自定义标签输入框里的草稿
-        var draft = ref("");
+        // 已选档位，[{name, value}]。数组顺序就是点选顺序，界面照着渲染
+        var facets = ref([]);
         var busy = ref(false);
         var statusText = ref("保存中…");
         var err = ref(error);
@@ -184,75 +205,30 @@
           return true;
         }
 
-        /* ---------------- 标签 ---------------- */
+        /* ---------------- 档位 ---------------- */
 
-        var LIMITS = (P5.tagLimits && P5.tagLimits()) || { len: 12, count: 6 };
-
-        var full = computed(function () {
-          return tags.value.length >= LIMITS.count;
-        });
-
-        // 只把「不在预置清单里」的挑出来单独一行。
-        // 预置标签是原地开关的（在它自己那组里高亮），不在这里重复列一份。
-        var customTags = computed(function () {
-          return tags.value.filter(function (t) {
-            return PRESET_ALL.indexOf(t) < 0;
-          });
-        });
-
-        var tagPlaceholder = computed(function () {
-          return full.value ? "已达上限" : "请输入标签";
-        });
-
-        var tagHint = computed(function () {
-          var base =
-            "已选 " + tags.value.length + " / " + LIMITS.count +
-            "，单个标签最多 " + LIMITS.len + " 字";
-          if (full.value) return base + "（已满，先取消一个再加）";
-          return base;
-        });
-
-        function isSelected(t) {
-          return tags.value.indexOf(t) >= 0;
-        }
-
-        /** 预置标签的开关 */
-        function toggle(t) {
-          if (busy.value) return;
-
-          tags.value = isSelected(t)
-            ? tags.value.filter(function (x) {
-                return x !== t;
-              })
-            : P5.cleanTags(tags.value.concat(t));
-
-          err.value = "";
+        function isOn(name, value) {
+          return P5F.hasFacet(facets.value, name, value);
         }
 
         /**
-         * 加一个自定义标签。
-         * 直接把草稿整串丢给 cleanTags —— 它负责按 , ， 、 ; 空格 切开，
-         * 所以用户一次打「低机位, 逆光」会变成两个标签，不会变成一个带逗号的。
-         * 顺便它也会把 # 前缀和 { } 引号之类的危险字符清掉。
+         * 点一个值：已选就取消，没选就加上。
+         * 单选维度（6 个里除了姿势都是）点新值会自动顶掉旧值 —— 规则在 facets.js 里，
+         * 这里不重复一遍，否则两边迟早不一致。
          */
-        function addCustom() {
-          if (busy.value || full.value) return;
+        function toggle(name, value) {
+          if (busy.value) return;
 
-          var raw = draft.value;
-          if (!raw || !raw.trim()) return;
-
-          var before = tags.value.join("\u0000");
-          tags.value = P5.cleanTags(tags.value.concat(raw));
-          draft.value = "";
-
-          // 输入的全是重复标签 / 全是空字符时，cleanTags 会返回原样的数组。
-          // 这时候用户会以为「点了没反应」，给一句提示。
-          if (tags.value.join("\u0000") === before) {
-            err.value = "这个标签已经有了，或者只有不能用的字符";
-          } else {
-            err.value = "";
-          }
+          facets.value = P5F.toggle(facets.value, name, value);
+          err.value = "";
         }
+
+        var facetHint = computed(function () {
+          var n = facets.value.length;
+          return n
+            ? "已选 " + n + " 项，再点一下取消；拿不准的空着就行"
+            : "拿不准的空着就行，不必每一项都填";
+        });
 
         async function submit() {
           if (busy.value) return;
@@ -273,7 +249,7 @@
               storagePath: path,
               title: title.value,
               note: note.value,
-              tags: tags.value
+              tags: P5F.toTags(facets.value)
             });
 
             location.replace("index.html");
@@ -291,16 +267,11 @@
           sizeText: sizeText,
           title: title,
           note: note,
-          tags: tags,
-          draft: draft,
-          presetGroups: PRESET_GROUPS,
-          customTags: customTags,
-          full: full,
-          tagPlaceholder: tagPlaceholder,
-          tagHint: tagHint,
-          isSelected: isSelected,
+          facetGroups: BASE_GROUPS.concat(extraGroups),
+          facets: facets,
+          facetHint: facetHint,
+          isOn: isOn,
           toggle: toggle,
-          addCustom: addCustom,
           busy: busy,
           statusText: statusText,
           error: err,

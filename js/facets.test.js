@@ -63,6 +63,26 @@ ok("只留非基础维度", pool.map(function (p) { return p.name; }).join(",") 
 ok("值去重且保持出现顺序", pool[0].values.join(",") === "透明雨伞,反光板");
 ok("坏标签被跳过", pool.length === 2);
 
+console.log("=== 编辑态 ===");
+ok("fromTags 拆出 name/value", JSON.stringify(F.fromTags(["镜头:中长焦"])) === '[{"name":"镜头","value":"中长焦"}]');
+ok("fromTags 跳过拆不出来的", F.fromTags(["低机位", ":值", "镜头:"]).length === 0);
+ok("toTags 拼回编码", F.toTags([{ name: "镜头", value: "中长焦" }]).join(",") === "镜头:中长焦");
+ok("toTags 丢掉非法值", F.toTags([{ name: "镜头", value: "f:2.8" }]).length === 0);
+ok("toTags 去重", F.toTags([{ name: "道具", value: "伞" }, { name: "道具", value: "伞" }]).length === 1);
+ok("fromTags → toTags 往返一致", F.toTags(F.fromTags(["镜头:中长焦", "姿势:回眸"])).join(",") === "镜头:中长焦,姿势:回眸");
+ok("hasFacet 命中", F.hasFacet([{ name: "镜头", value: "中长焦" }], "镜头", "中长焦") === true);
+ok("hasFacet 不命中", F.hasFacet([{ name: "镜头", value: "中长焦" }], "镜头", "广角") === false);
+ok("isMulti(姿势) 为真", F.isMulti("姿势") === true);
+ok("isMulti(镜头) 为假", F.isMulti("镜头") === false);
+ok("isMulti(道具) 默认多值", F.isMulti("道具") === true);
+ok("toggle 加上", F.toggle([], "镜头", "中长焦").length === 1);
+ok("toggle 再点取消", F.toggle([{ name: "镜头", value: "中长焦" }], "镜头", "中长焦").length === 0);
+ok("单选维度：点新值顶掉旧值", JSON.stringify(F.toggle([{ name: "镜头", value: "中长焦" }], "镜头", "广角")) === '[{"name":"镜头","value":"广角"}]');
+ok("多值维度：两个值并存", F.toggle([{ name: "姿势", value: "回眸" }], "姿势", "坐姿").length === 2);
+ok("追加维度按多值处理", F.toggle([{ name: "道具", value: "透明雨伞" }], "道具", "反光板").length === 2);
+ok("toggle 不就地改原数组", (function () { var a = [{ name: "镜头", value: "中长焦" }]; F.toggle(a, "镜头", "广角"); return a.length === 1; })());
+ok("toggle 空值不动", F.toggle([], "镜头", "").length === 0);
+
 console.log("=== 提示词 ===");
 var empty = F.buildPrompt();
 var full = F.buildPrompt(pool);
