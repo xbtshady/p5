@@ -1,11 +1,12 @@
 /**
- * CloudBase 封装 —— 0.12 版（登录 + 照片存取 + 删除 + 维度档位）
+ * CloudBase 封装 —— 0.13 版（登录 + 照片存取 + 删除 + 维度档位 + AI 技巧）
  *
  * 职责：
  *   1. 初始化 SDK
  *   2. 登录 / 退出 / 查当前用户
  *   3. 照片：上传到私有桶、落库、列出自己的照片、换取临时访问链接、删除
  *   4. 标签：归一化、按标签筛选、统计标签用量
+ *   5. AI 技巧：归一化（ai_tips 列，0.13 起写入）
  *
  * 依赖：
  *   - cloudbase.full.js（页面通过 CDN 引入，全局变量 cloudbase）
@@ -16,11 +17,13 @@
  *   signOut()                   → void          退出登录
  *   getCurrentUser()            → user | null   查当前登录用户（未登录返回 null）
  *   uploadPhoto(file, ext)      → path          上传照片，返回桶内路径
- *   createPhoto(meta)           → row           落库（meta.tags 会先过 cleanTags）
+ *   createPhoto(meta)           → row           落库（meta.tags / meta.aiTips 会先清洗）
  *   listPhotos({ tag })         → rows          当前用户的照片列表，可按标签筛
  *   listTagCounts()             → [{tag,count}] 标签用量，倒序（客户端聚合，见函数注释）
  *   cleanTags(text|array)       → string[]      档位归一化（切分/去空/去重/截断，含冒号拦截）
  *   tagLimits()                 → {len,count}   档位的长度与数量上限，给界面做提示
+ *   cleanTips(text|array)       → string[]      AI 技巧归一化（去空/去重/限 3 条，不截长度）
+ *   tipsLimit()                 → {max}         技巧条数上限，给界面做提示
  *   signPhotoUrls(paths)        → {path: url}   批量换临时访问链接
  *   deletePhoto(id, path)       → void          删除记录 + 桶里的文件（先删行再删文件）
  *
@@ -125,6 +128,39 @@
 
   function tagLimits() {
     return { len: TAG_MAX_LEN, count: TAG_MAX_COUNT };
+  }
+
+  /* --------------------------------------------------------------------------
+   * AI 技巧（ai_tips 列，0.10 加列 / 0.13 起写入）
+   * -------------------------------------------------------------------------- */
+
+  /* 提示词里要的就是 1-3 条，多给的是它没听话，多的丢掉。
+     ⚠️ 只限数量，**不截断单条长度** —— tips 是给人看的、不参与筛选，
+     没有任何编码约束（对比 tags 的长度上限是被 postgREST 拼串逼出来的），
+     截断只会静默丢内容，而静默正是这个项目一直避免的。 */
+  var TIPS_MAX = 3;
+
+  /**
+   * 归一化一批 AI 技巧：合并空白 → 去空 → 去重 → 限数量。
+   * 不做切分：一条 tips 本来就允许是完整的一句话（含逗号、顿号）。
+   */
+  function cleanTips(input) {
+    var list = Array.isArray(input) ? input : input == null ? [] : [input];
+    var seen = Object.create(null);
+    var out = [];
+
+    for (var i = 0; i < list.length; i++) {
+      var t = String(list[i] == null ? "" : list[i]).replace(/\s+/g, " ").trim();
+      if (!t || seen[t]) continue;
+      seen[t] = true;
+      out.push(t);
+    }
+
+    return out.slice(0, TIPS_MAX);
+  }
+
+  function tipsLimit() {
+    return { max: TIPS_MAX };
   }
 
   var app = null;
@@ -292,7 +328,7 @@
   /**
    * 落库。
    * owner_id 交给数据库默认值 auth.uid()——前端既不传，也传不了别的值。
-   * tags 在这里统一过一道 cleanTags：这是写入的唯一入口，校验放在这里就不会漏。
+   * tags / ai_tips 在这里统一过一道清洗：这是写入的唯一入口，校验放在这里就不会漏。
    */
   async function createPhoto(meta) {
     await init();
@@ -302,7 +338,8 @@
         storage_path: meta.storagePath,
         title: meta.title || null,
         note: meta.note || null,
-        tags: cleanTags(meta.tags)
+        tags: cleanTags(meta.tags),
+        ai_tips: cleanTips(meta.aiTips)
       }),
       "保存照片"
     );
@@ -452,6 +489,8 @@
     listTagCounts: listTagCounts,
     cleanTags: cleanTags,
     tagLimits: tagLimits,
+    cleanTips: cleanTips,
+    tipsLimit: tipsLimit,
     signPhotoUrls: signPhotoUrls,
     deletePhoto: deletePhoto,
     // 1.5 之后可能会直接用到

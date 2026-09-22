@@ -62,19 +62,51 @@
         <div class="field">
           <span class="label">档位</span>
 
+          <!-- 站里不接 AI 的剪贴板闭环：复制提示词 → 连照片发给外部 AI → JSON 粘回来。
+               提示词正文见 docs/PROMPT.md -->
+          <div class="ai-bar">
+            <button type="button" class="btn ghost" :disabled="busy" @click="genPrompt">生成提示词</button>
+            <button type="button" class="btn ghost" :disabled="busy" @click="toggleReply">粘贴回填</button>
+          </div>
+
+          <!-- 只读框：自动复制成功时它是「抄得到」的备份，
+               复制失败（非 https / 权限被拒）时它就是唯一的出路 -->
+          <textarea
+            v-if="promptOpen"
+            class="ai-box"
+            rows="6"
+            readonly
+            :value="promptText"
+          ></textarea>
+
+          <div v-if="replyOpen" class="reply-wrap">
+            <textarea
+              ref="replyBox"
+              v-model="replyText"
+              class="ai-box"
+              rows="5"
+              placeholder="把 AI 回的 JSON 整段粘在这里"
+            ></textarea>
+            <button type="button" class="btn" :disabled="busy" @click="applyReply">解析并填入</button>
+          </div>
+
+          <p v-if="feedback" class="ai-note">{{ feedback }}</p>
+          <p v-if="whyText" class="ai-note">AI 的依据：{{ whyText }}</p>
+
           <div class="tag-picker">
             <div class="tag-group" v-for="g in facetGroups" :key="g.name">
               <span class="tag-group-name">{{ g.label }}</span>
               <div class="tag-row">
                 <!-- 值只能从候选里点选，没有自由输入的框 —— 一旦自由发散，
                      「中长焦」「长焦感」「长焦压缩」会同时存在，按值筛选就废了。
-                     单选维度点新值会自动顶掉旧值（只有姿势能多选）。 -->
+                     单选维度点新值会自动顶掉旧值（只有姿势能多选）。
+                     带圆点的是 AI 自己定的值（不在候选里），点一下就没了。 -->
                 <button
-                  v-for="val in g.values"
+                  v-for="val in chipValues(g)"
                   :key="val"
                   type="button"
                   class="tag-chip"
-                  :class="{ 'is-on': isOn(g.name, val) }"
+                  :class="{ 'is-on': isOn(g.name, val), 'is-loose': isLoose(g, val) }"
                   :disabled="busy"
                   :aria-pressed="isOn(g.name, val) ? 'true' : 'false'"
                   @click="toggle(g.name, val)"
@@ -84,6 +116,22 @@
 
             <p class="tag-hint">{{ facetHint }}</p>
           </div>
+        </div>
+
+        <div class="field" v-if="tips.length">
+          <span class="label">下次这样拍（AI 给的，不对就删掉）</span>
+          <ul class="tip-list">
+            <li v-for="(t, i) in tips" :key="i">
+              <span class="tip-text">{{ t }}</span>
+              <button
+                type="button"
+                class="tip-x"
+                :disabled="busy"
+                aria-label="删掉这条技巧"
+                @click="removeTip(i)"
+              >×</button>
+            </li>
+          </ul>
         </div>
 
         <p v-if="error" class="error">{{ error }}</p>

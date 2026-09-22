@@ -22,6 +22,7 @@
  *   hasFacet(facets, n, v)   → bool（界面判断某个值有没有被选中）
  *   isMulti(name)            → bool（这个维度能不能多选）
  *   toggle(facets, n, v)     → 新的编辑态（点选 / 取消，单选维度自动顶掉旧值）
+ *   applyFacets(cur, inc)    → 新的编辑态（把 AI 回填的按维度合进来，见 0.13）
  *   poolFromTags(tags)       → [{name, values}]，只含非基础维度
  *   buildPrompt(existing)    → string，发给 AI 的完整提示词
  *   parseReply(text)         → {ok, facets, tips, error, raw}
@@ -223,6 +224,56 @@
       });
     }
     list.push({ name: n, value: v });
+    return list;
+  }
+
+  /**
+   * 把一批「进来的档位」合进当前编辑态 —— 0.13 回填用。
+   *
+   * 规则是**按维度覆盖，不是整体替换**：
+   *   - incoming 里出现的维度：先把 current 里同维度的项整个删掉，再放 incoming 的
+   *     —— 单选维度上绝不会留下两个互相矛盾的值（这正是 toggle 在保证的事）
+   *   - incoming 里没出现的维度：current 原样保留。人先手点了几项再回填，
+   *     不该被 AI 没提到的维度冲掉
+   *
+   * 顺序：没被覆盖的按原顺序在前，被覆盖的按 incoming 顺序接在后面。
+   * 顺序只影响写库时 tags 的排列，不影响界面 —— 高亮是按 name+value 查的。
+   *
+   * 单选维度上 AI 给了多个值（prompt 让它只给一个，但它可能写成「广角/标准」）
+   * 时**只留第一个**：两个都留下就破坏了「单选」这个不变量，界面再也点不出那个状态。
+   */
+  function applyFacets(current, incoming) {
+    var list = Array.isArray(current) ? current.slice() : [];
+    var inc = Array.isArray(incoming) ? incoming : [];
+    var touched = Object.create(null);
+
+    inc.forEach(function (f) {
+      if (f && f.name) touched[f.name] = true;
+    });
+
+    list = list.filter(function (f) {
+      return f && !touched[f.name];
+    });
+
+    inc.forEach(function (f) {
+      if (!f || !f.name) return;
+
+      var v = String(f.value == null ? "" : f.value).trim();
+      if (!v) return;
+
+      var dup = list.some(function (x) {
+        return x.name === f.name && x.value === v;
+      });
+      if (dup) return;
+
+      var occupied = list.some(function (x) {
+        return x.name === f.name;
+      });
+      if (occupied && !isMulti(f.name)) return;
+
+      list.push({ name: f.name, value: v });
+    });
+
     return list;
   }
 
@@ -580,6 +631,7 @@
     hasFacet: hasFacet,
     isMulti: isMulti,
     toggle: toggle,
+    applyFacets: applyFacets,
     poolFromTags: poolFromTags,
     buildPrompt: buildPrompt,
     parseReply: parseReply

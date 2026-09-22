@@ -1,11 +1,12 @@
 /**
- * 新增照片页逻辑 —— 0.12 版（标签换成维度档位）
+ * 新增照片页逻辑 —— 0.13 版（维度档位 + AI 闭环）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
  *   2. 选图 → 前端压缩（长边 1600px、WebP）→ 缩略图 + 体积对照
- *   3. 选档位：6 个基础维度，值只能从候选里点选
- *   4. 提交 → 上传到私有桶 {uid}/xxx → 落库 → 回列表
+ *   3. AI 闭环：生成提示词 → 复制 → 连照片一起发给外部 AI → 把它回的 JSON 粘回来
+ *      → 档位和技巧自动填好
+ *   4. 扫一眼确认（不对的就点掉）→ 提交 → 上传 → 落库 → 回列表
  *
  * 三条硬约定：
  *   - 上传失败绝不落库。宁可报错让用户重试，也不要留下一条指向不存在文件的记录。
@@ -15,12 +16,21 @@
  *     吞成它的子元素，表现为「写了好几个只渲染出一个」。原生 void 元素
  *     （img / input）不受影响。
  *
+ * AI 闭环为什么是剪贴板：站里不接 AI —— 没有后端成本，也没有密钥要管
+ * （PRODUCT-1.0.md §3.5）。将来 1.5 站内直连时换掉的只有「复制 / 粘贴」这两步，
+ * buildPrompt / parseReply 原样复用，现在做的不算弯路。
+ *
+ * ⚠️ 回填**不自动入库**：解析结果先铺到界面上，人点了保存才算数。
+ *    AI 会错，而错标签比没标签更坏 —— 会把参考库污染成「你以为自己是中长焦拍的」。
+ *    拦截放在确认界面（人看一眼就能改），不靠程序硬丢。
+ *
  * 档位这件事和 js/facets.js 怎么分工（别越界）：
  *   - **页面不写死任何值域**：有哪些维度、每个维度有哪些值，全从 P5Facets.BASE 来。
  *     改维度只改那份字典，界面和提示词自动跟着变
  *   - 点选 / 取消 / 单选顶替的规则在 P5Facets.toggle，页面只管调它
  *   - 编辑态是 [{name, value}]，**和 AI 回填（parseReply）的输出同一个形状** ——
- *     0.13 接 AI 时是把结构化数据喂进同一套更新函数，不用再写一套
+ *     回填就是把结构化数据喂进同一套更新函数
+ *   - 回填的合并规则（按维度覆盖、单选维度只留一个值）在 P5Facets.applyFacets
  *   - 写库前先过 P5Facets.toTags，再交给 P5.createPhoto（后者还会过 cleanTags ——
  *     那是写入的唯一入口，别在页面里另写一套清洗）
  */
@@ -52,6 +62,7 @@
   var createApp = Vue.createApp;
   var ref = Vue.ref;
   var computed = Vue.computed;
+  var nextTick = Vue.nextTick;
   var P5 = window.P5 || {};
   var P5F = window.P5Facets;
 
@@ -64,7 +75,7 @@
    *
    * 单选还是多选不在这里判断 —— 那是 P5Facets.toggle 的事，这里只负责显示个提示，
    * 免得用户不知道「姿势」能选好几个。
-   * AI 追加的维度在 bootstrap 里从库里聚合后拼在它后面（extraGroups）。
+   * 真正渲染用的分组是 setup 里的 facetGroups（这份 + 库里已有的追加维度 + 回填新出现的）。
    */
   var BASE_GROUPS = P5F.BASE.map(function (f) {
     return {
@@ -103,22 +114,25 @@
     }
 
     /**
-     * 追加维度：库里用过的非基础维度（道具 / 场景 / 色调…）。
-     * 现在多半是空的 —— 0.13 接上 AI 之后，AI 开的新维度会出现在这里，界面不用再改。
+     * 库里已有的标签，两处要用：
+     *   - buildPrompt（0.13）：喂给 AI 当「已有维度，优先复用」的池子 ——
+     *     逼它沿用已有的写法，别为同一个意思造新词（造了按值筛选就散了）
+     *   - extraGroups：其中非基础维度那些（道具 / 场景…），当可点选的追加维度显示
      * 拿不到不该挡住新增：基础 6 个照常可用，所以这里只 warn 不报错。
      */
+    var poolTags = [];
     var extraGroups = [];
+
     try {
       var counts = await P5.listTagCounts();
-      extraGroups = P5F.poolFromTags(
-        counts.map(function (c) {
-          return c.tag;
-        })
-      ).map(function (p) {
+      poolTags = counts.map(function (c) {
+        return c.tag;
+      });
+      extraGroups = P5F.poolFromTags(poolTags).map(function (p) {
         return { name: p.name, values: p.values, label: p.name };
       });
     } catch (pe) {
-      console.warn("[P5] 追加维度读取失败，只显示基础维度:", pe);
+      console.warn("[P5] 已有维度读取失败，只显示基础维度:", pe);
     }
 
     var app = createApp({
@@ -136,6 +150,16 @@
         var busy = ref(false);
         var statusText = ref("保存中…");
         var err = ref(error);
+
+        /* ---- AI 闭环的状态（0.13） ---- */
+        var promptText = ref("");   // 生成出来的提示词，放只读框里显示（复制失败时手动抄）
+        var promptOpen = ref(false);
+        var replyText = ref("");    // 用户粘进来的 AI 回复原文
+        var replyOpen = ref(false);
+        var replyBox = ref(null);   // 粘贴框，展开后自动聚焦
+        var tips = ref([]);         // AI 给的技巧，回填后显示、可逐条删
+        var whyText = ref("");      // AI 每条判断的依据，拼成一行给人工确认用
+        var feedback = ref("");     // 灰字反馈（已复制 / 填了几个档位）
 
         /**
          * 选完图（van-uploader 的 after-read）：
@@ -205,7 +229,184 @@
           return true;
         }
 
+        /* ---------------- AI 闭环（0.13） ----------------
+         * 站里不接 AI：点「生成提示词」复制，连照片一起发给外部 AI，
+         * 把它回的 JSON 粘回来 → 自动填档位和技巧。
+         * 将来 1.5 站内直连时，替换的只有这两步，buildPrompt / parseReply 原样复用。
+         * 提示词正文和每条措辞的理由在 docs/PROMPT.md。
+         * --------------------------------------------------- */
+
+        /**
+         * 生成提示词并复制。
+         *
+         * 池子喂的是**库里已有的全部标签**（基础维度那些会被 buildPrompt 自己滤掉）：
+         * 把用过的写法还给 AI，它才会沿用而不是另造同义词 —— 造了按值筛选就散了。
+         *
+         * 复制失败**不是错**：提示词已经显示在下面的只读框里，长按手动复制即可。
+         * 用 navigator.clipboard 而不是 execCommand —— 线上是 https，
+         * 前者可靠，也不用往页面里塞一个隐藏的 textarea。
+         */
+        async function genPrompt() {
+          if (busy.value) return;
+
+          err.value = "";
+          feedback.value = "";
+
+          if (promptOpen.value) {
+            promptOpen.value = false;
+            return;
+          }
+
+          promptText.value = P5F.buildPrompt(poolTags);
+          promptOpen.value = true;
+
+          var copied = false;
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(promptText.value);
+              copied = true;
+            }
+          } catch (e) {
+            console.warn("[P5] 复制失败:", e);
+          }
+
+          feedback.value = copied
+            ? "已复制。把提示词和照片一起发给能看图的 AI，再把它回的 JSON 粘到下面。"
+            : "没能自动复制，长按上面框里的文字手动复制。";
+        }
+
+        /**
+         * 展开 / 收起粘贴区，展开后自动聚焦（省一次点击）。
+         *
+         * 为什么不去读剪贴板（navigator.clipboard.readText）：各端权限行为不一致，
+         * 微信内置浏览器里基本拿不到；读失败还得再教一次怎么手动粘 ——
+         * 不如一开始就让人自己粘，行为可预期。
+         */
+        function toggleReply() {
+          if (busy.value) return;
+
+          replyOpen.value = !replyOpen.value;
+          if (!replyOpen.value) return;
+
+          nextTick(function () {
+            if (replyBox.value && replyBox.value.focus) replyBox.value.focus();
+          });
+        }
+
+        function removeTip(i) {
+          var list = tips.value.slice();
+          list.splice(i, 1);
+          tips.value = list;
+        }
+
+        /**
+         * 解析粘进来的回复并回填。
+         *
+         * 解析失败时**原文留在框里、框不收起**，只报一句原因 ——
+         * 让人改一处就能重试，不必回 AI 那边再复制一遍。
+         */
+        function applyReply() {
+          if (busy.value) return;
+
+          err.value = "";
+          feedback.value = "";
+
+          if (!replyText.value.trim()) {
+            err.value = "先把 AI 回的 JSON 粘进来";
+            return;
+          }
+
+          var res = P5F.parseReply(replyText.value);
+
+          if (!res.ok) {
+            err.value = res.error;
+            return;
+          }
+
+          // 档位：按维度合进现有编辑态（AI 没提到的维度不动，单选维度只留一个值）
+          facets.value = P5F.applyFacets(facets.value, res.facets);
+
+          // 技巧：整批替换。回填代表「这一轮分析的结果」，不该和上一轮的叠在一起
+          var max = (P5.tipsLimit && P5.tipsLimit().max) || 3;
+          tips.value = res.tips.slice(0, max);
+
+          // AI 每条的判断依据拼成一行：人工确认全靠它判断该不该留（PROMPT 里 why 的用途）
+          whyText.value = res.facets
+            .filter(function (f) {
+              return f.why;
+            })
+            .map(function (f) {
+              return f.name + ":" + f.value + "（" + f.why + "）";
+            })
+            .join(" · ");
+
+          var n = res.facets.length;
+          var loose = res.facets.filter(function (f) {
+            return f.isNew || !f.known;
+          }).length;
+
+          var msg = "填好 " + n + " 个档位";
+          if (tips.value.length) msg += "、" + tips.value.length + " 条技巧";
+          if (res.tips.length > max) {
+            msg += "（AI 给了 " + res.tips.length + " 条，只留了前 " + max + " 条）";
+          }
+          msg += "。扫一眼再保存";
+          if (loose) msg += "；带圆点的是 AI 自己定的值，不对就点掉";
+
+          feedback.value = msg;
+          replyOpen.value = false;
+        }
+
         /* ---------------- 档位 ---------------- */
+
+        /**
+         * 界面上要显示的分组 = 6 个基础 + 库里已有的追加维度 + **本次回填新出现的维度**。
+         *
+         * 最后那类是 AI 自己开的（PRODUCT §3.4：维度只由 AI 产生），此刻还没入库；
+         * 不在这里补上，就会出现「值被选中了却看不见、也点不掉」。
+         *
+         * known 用 Object.create(null)：维度名万一叫 "constructor"，
+         * {} 上的原型属性会让判断直接为真（cloudbase.js 里踩过同款坑）。
+         */
+        var facetGroups = computed(function () {
+          var groups = BASE_GROUPS.concat(extraGroups);
+          var known = Object.create(null);
+
+          groups.forEach(function (g) {
+            known[g.name] = true;
+          });
+
+          facets.value.forEach(function (f) {
+            if (!f || known[f.name]) return;
+            known[f.name] = true;
+            // 候选先留空，AI 给的那个值由 chipValues 补上
+            groups.push({ name: f.name, values: [], label: f.name });
+          });
+
+          return groups;
+        });
+
+        /**
+         * 一个维度该显示哪些值：候选（字典 / 池子）在前，**编辑态里不在候选中的值接在后**。
+         *
+         * 后者是 AI 自己定的（判错的值、或新维度里新建的值）。不能让它隐形 ——
+         * 隐形就点不掉，而它照样会被 toTags 写进库。
+         * 带个圆点标出来，「人工确认」那一步就靠这些标记和上面那行依据。
+         */
+        function chipValues(g) {
+          var out = g.values.slice();
+
+          facets.value.forEach(function (f) {
+            if (f && f.name === g.name && out.indexOf(f.value) < 0) out.push(f.value);
+          });
+
+          return out;
+        }
+
+        /** 值是不是「不在候选里」（决定要不要带圆点） */
+        function isLoose(g, val) {
+          return g.values.indexOf(val) < 0;
+        }
 
         function isOn(name, value) {
           return P5F.hasFacet(facets.value, name, value);
@@ -249,7 +450,8 @@
               storagePath: path,
               title: title.value,
               note: note.value,
-              tags: P5F.toTags(facets.value)
+              tags: P5F.toTags(facets.value),
+              aiTips: tips.value
             });
 
             location.replace("index.html");
@@ -267,11 +469,25 @@
           sizeText: sizeText,
           title: title,
           note: note,
-          facetGroups: BASE_GROUPS.concat(extraGroups),
+          facetGroups: facetGroups,
           facets: facets,
           facetHint: facetHint,
+          chipValues: chipValues,
+          isLoose: isLoose,
           isOn: isOn,
           toggle: toggle,
+          promptText: promptText,
+          promptOpen: promptOpen,
+          replyText: replyText,
+          replyOpen: replyOpen,
+          replyBox: replyBox,
+          tips: tips,
+          whyText: whyText,
+          feedback: feedback,
+          genPrompt: genPrompt,
+          toggleReply: toggleReply,
+          applyReply: applyReply,
+          removeTip: removeTip,
           busy: busy,
           statusText: statusText,
           error: err,

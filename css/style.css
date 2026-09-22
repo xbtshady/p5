@@ -960,6 +960,121 @@ input[type="file"]:hover::file-selector-button {
   color: var(--muted);
 }
 
+/* ---------- 0.13：AI 闭环（生成提示词 / 粘贴回填） ---------- */
+
+/* 两个动作并排一行。.btn 本身是满宽 block，这里覆盖成等分 ——
+   它们是「同一件事的两端」，并排才看得出是一组 */
+.ai-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.ai-bar .btn {
+  flex: 1;
+  width: auto;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+/* 提示词 / 粘贴框。字号降一档：那是给人「复制」的机器文本，不是拿来读的内容 */
+.ai-box {
+  margin-bottom: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.reply-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+/* 回填反馈、AI 的依据。灰字小注：看一眼就够，不跟档位胶囊抢注意力 */
+.ai-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* AI 自己定的值（不在候选里）。前面缀一个实心圆点 ——
+   用 currentColor，未选中（白底灰字）和选中（近黑底白字）都看得见。
+   ⚠️ 不用虚线边框：选中态是近黑实底，虚线边框压在上面基本看不出来 */
+.tag-chip.is-loose::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* ---------- 0.13：新增页的「下次这样拍」 ---------- */
+
+.tip-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 每条一块白底，和档位胶囊一样「可以碰」；删除键靠右独立成圆点，
+   避免整块变成点击区（点错了就删掉一条 AI 的提示） */
+.tip-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--card);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-1);
+}
+
+.tip-text {
+  flex: 1;
+}
+
+.tip-x {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease-io),
+    border-color var(--dur) var(--ease-io), transform var(--dur-fast) var(--ease-io);
+}
+
+.tip-x:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.tip-x:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.tip-x:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tip-x:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 /* ---------- 首页：探索 + 卡片上的标签 ---------- */
 
 .explore {

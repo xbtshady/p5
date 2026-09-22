@@ -83,6 +83,36 @@ ok("追加维度按多值处理", F.toggle([{ name: "道具", value: "透明雨�
 ok("toggle 不就地改原数组", (function () { var a = [{ name: "镜头", value: "中长焦" }]; F.toggle(a, "镜头", "广角"); return a.length === 1; })());
 ok("toggle 空值不动", F.toggle([], "镜头", "").length === 0);
 
+console.log("=== 回填合并（applyFacets） ===");
+ok("空编辑态直接接上",
+  JSON.stringify(F.applyFacets([], [{ name: "镜头", value: "广角" }])) === '[{"name":"镜头","value":"广角"}]');
+ok("覆盖同维度：单选维度上不会两个值并存",
+  F.applyFacets([{ name: "镜头", value: "中长焦" }], [{ name: "镜头", value: "广角" }])
+    .filter(function (f) { return f.name === "镜头"; }).length === 1);
+ok("没提到的维度原样保留",
+  F.applyFacets([{ name: "景别", value: "全身" }], [{ name: "镜头", value: "广角" }])
+    .map(function (f) { return f.value; }).join(",") === "全身,广角");
+ok("没被覆盖的排在前、覆盖的接在后",
+  F.applyFacets([{ name: "景别", value: "全身" }, { name: "镜头", value: "中长焦" }], [{ name: "镜头", value: "广角" }])
+    .map(function (f) { return f.value; }).join(",") === "全身,广角");
+ok("多值维度：AI 两条都进去",
+  F.applyFacets([], [{ name: "姿势", value: "回眸" }, { name: "姿势", value: "坐姿" }]).length === 2);
+ok("单选维度 AI 给两个值只留第一个",
+  F.applyFacets([], [{ name: "镜头", value: "广角" }, { name: "镜头", value: "标准" }])
+    .map(function (f) { return f.value; }).join(",") === "广角");
+ok("重复项不重复添加",
+  F.applyFacets([{ name: "姿势", value: "回眸" }], [{ name: "姿势", value: "回眸" }]).length === 1);
+ok("空值被丢掉", F.applyFacets([], [{ name: "镜头", value: "  " }]).length === 0);
+ok("不就地改原数组", (function () {
+  var a = [{ name: "镜头", value: "中长焦" }];
+  F.applyFacets(a, [{ name: "镜头", value: "广角" }]);
+  return a.length === 1 && a[0].value === "中长焦";
+})());
+ok("AI 换维度后仍能 encode 写库",
+  F.toTags(F.applyFacets([], F.parseReply('{"facets":{"道具":{"v":"透明雨伞"}}}').facets)).join(",") === "道具:透明雨伞");
+ok("回填结果能覆盖到基础维度上（parseReply → applyFacets 串联）",
+  F.toTags(F.applyFacets([{ name: "镜头", value: "中长焦" }], F.parseReply('{"facets":{"镜头":{"v":"广角"}}}').facets)).join(",") === "镜头:广角");
+
 console.log("=== 提示词 ===");
 var empty = F.buildPrompt();
 var full = F.buildPrompt(pool);
