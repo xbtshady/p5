@@ -367,7 +367,7 @@
 
     var query = db
       .from("photo_notes")
-      .select("id,storage_path,title,note,tags,created_at");
+      .select("id,storage_path,title,note,tags,ai_tips,created_at");
 
     if (tag) query = query.contains("tags", [tag]);
 

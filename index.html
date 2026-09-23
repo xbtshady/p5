@@ -100,23 +100,40 @@
 
           <div class="shot-body">
             <p class="shot-title" v-if="p.title">{{ p.title }}</p>
-            <p class="shot-note" v-if="p.note">{{ p.note }}</p>
 
-            <!-- 卡片上的标签也是筛选入口，点一下看同标签的其它照片。
-                 用 button 不用 span —— 键盘才 Tab 得到（触屏上没差别） -->
-            <div class="shot-tags" v-if="p.tags.length">
+            <!-- 0.14 档位一行：只显示值（「镜头:中长焦」只显「中长焦」），
+                 一行塞不下 6 个「维度:值」；维度名在筛选区出现（0.15）。
+                 超长单行省略，全部档位在展开区里折行看 -->
+            <p class="shot-facets" v-if="p.facetValues.length">
+              {{ p.facetValues.join(' · ') }}
+            </p>
+
+            <!-- 日期 + 技巧条数。点这一行原地展开描述 / 全部档位 / 技巧，
+                 不跳详情页（PRODUCT §3.3）。没东西可展开时只有日期，不渲染按钮 -->
+            <div class="shot-meta">
+              <p class="shot-date">{{ p.date }}</p>
               <button
-                v-for="t in p.tags"
-                :key="t"
+                v-if="p.expandable"
                 type="button"
-                class="tag-chip"
-                :class="{ 'is-on': t === activeTag }"
-                :disabled="busy"
-                @click="filterBy(t)"
-              >{{ t }}</button>
+                class="shot-toggle"
+                :aria-expanded="p.open ? 'true' : 'false'"
+                @click="toggle(p)"
+              >{{ p.tips.length ? p.tips.length + ' 条技巧' : (p.open ? '收起' : '展开') }}<span
+                  class="shot-caret"
+                  :class="{ 'is-open': p.open }"
+                >▾</span></button>
             </div>
 
-            <p class="shot-date">{{ p.date }}</p>
+            <!-- 展开区：描述 + 全部档位（折行）+ 技巧。顺序照 PRODUCT §3.1 -->
+            <div class="shot-more" v-if="p.open">
+              <p class="shot-note" v-if="p.note">{{ p.note }}</p>
+              <p class="shot-facets is-full" v-if="p.facetValues.length">
+                {{ p.facetValues.join(' · ') }}
+              </p>
+              <ul class="tip-list" v-if="p.tips.length">
+                <li v-for="(t, ti) in p.tips" :key="ti"><span class="tip-text">{{ t }}</span></li>
+              </ul>
+            </div>
           </div>
         </li>
       </ul>
@@ -128,6 +145,7 @@
   <script src="https://static.cloudbase.net/cloudbase-js-sdk/latest/cloudbase.full.js"></script>
   <script src="js/config.js"></script>
   <script src="js/cloudbase.js"></script>
+  <script src="js/facets.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

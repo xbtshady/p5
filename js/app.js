@@ -1,5 +1,5 @@
 /**
- * 首页（照片列表）逻辑 —— 0.9 版（加上标签筛选）
+ * 首页（照片列表）逻辑 —— 0.14 版（卡片档位行 + 原地展开）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
@@ -7,7 +7,8 @@
  *   3. 私有桶拿不到直链，渲染前批量换成临时访问链接
  *   4. 取一次标签用量，给「探索」区做标签云
  *   5. 卡片右上角可删除：二次确认后先删行、再删桶里的文件
- *   6. 点标签筛选（探索区或卡片上的都行），再点一次取消
+ *   6. 点标签筛选（探索区的入口），再点一次取消
+ *   7. 卡片默认只露一行档位值 + 技巧条数，点日期那行原地展开详情（0.14）
  *
  * 关于「刷新时闪一下」：沿用 0.1 定下的约定 —— 先把要显示的内容全部确定好，
  * 再 mount Vue。所以照片列表、临时链接、标签用量都在 mount 之前就备齐了。
@@ -74,13 +75,28 @@
     var urlMap = paths.length ? await P5.signPhotoUrls(paths) : {};
 
     return rows.map(function (r) {
+      var tips = r.ai_tips || [];
+
+      // 档位一行只显值：库里存的是「镜头:中长焦」，decode 之后只取值。
+      // 「不确定」不显示 —— 它是 AI 拿不准时的合法出口，但没有参考价值，
+      // 一行档位要留给真信息（展开区同规则，两处同一个数组）。
+      var facetValues = P5Facets.fromTags(r.tags || [])
+        .map(function (d) {
+          return d.value === P5Facets.UNCERTAIN ? "" : d.value;
+        })
+        .filter(Boolean);
+
       return {
         id: r.id,
         // 删除时要连桶里的文件一起删，所以路径必须留着
         storagePath: r.storage_path,
         title: r.title || "",
         note: r.note || "",
-        tags: r.tags || [],
+        facetValues: facetValues,
+        tips: tips,
+        // 没有描述、档位、技巧任何一样时，展开区是空的 —— 不渲染那个按钮
+        expandable: !!(r.note || facetValues.length || tips.length),
+        open: false,
         date: fmtDate(r.created_at),
         url: urlMap[r.storage_path] || "",
         // 图片解码完置 true，CSS 靠它把照片淡出来
@@ -235,6 +251,14 @@
         }
 
         /**
+         * 卡片原地展开 / 收起（0.14）。
+         * 只改这一条的 open，别的卡片不动 —— 刷的时候一张一张看，不该连带。
+         */
+        function toggle(p) {
+          p.open = !p.open;
+        }
+
+        /**
          * 删除一条记录。
          *
          * 先弹确认：删掉就没了，不给自己留后悔的余地。
@@ -298,6 +322,7 @@
           logout: logout,
           preview: preview,
           filterBy: filterBy,
+          toggle: toggle,
           remove: remove
         };
       }

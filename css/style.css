@@ -765,6 +765,97 @@ input[type="file"]:hover::file-selector-button {
   letter-spacing: 0.01em;
 }
 
+/* ---------- 0.14：档位一行 + 原地展开 ---------- */
+
+/* 档位行（收起态）：只显值、单行、超长省略。
+   次要灰：它和日期一样是元信息，不跟照片和标题抢注意力 */
+.shot-facets {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 展开态的档位：同一份数据，放开折行，全部看全 */
+.shot-facets.is-full {
+  white-space: normal;
+  overflow: visible;
+}
+
+/* 日期 + 技巧条数同一行：左日期、右条数 */
+.shot-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* 日期不再自己撑上边距，跟着 .shot-meta 的排版走 */
+.shot-meta .shot-date {
+  margin: 0;
+}
+
+/* 展开开关：行内文字按钮，比 .text-btn 轻 —— 它长在卡片文字流里，
+   白底描边那种「表单按钮」的分量会把它变成卡片里的第二主角 */
+.shot-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease-io),
+    background var(--dur) var(--ease-io);
+}
+
+@media (hover: hover) {
+  .shot-toggle:hover {
+    color: var(--text);
+    background: rgba(22, 24, 28, 0.04);
+  }
+}
+
+.shot-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 收起箭头：展开时转 180°。转的是 span 不是 button ——
+   button 上转会把文字一起倒过来 */
+.shot-caret {
+  display: inline-block;
+  font-size: 11px;
+  transition: transform var(--dur) var(--ease-io);
+}
+
+.shot-caret.is-open {
+  transform: rotate(180deg);
+}
+
+/* 展开区：描述 + 全部档位 + 技巧。
+   一刀分隔线划开「默认可见」和「点开才看」，收起时整块不渲染（v-if） */
+.shot-more {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.shot-more .shot-note {
+  margin: 0;
+}
+
 /* ---------- 通用 ---------- */
 
 .error {
@@ -1075,7 +1166,7 @@ input[type="file"]:hover::file-selector-button {
   outline-offset: 2px;
 }
 
-/* ---------- 首页：探索 + 卡片上的标签 ---------- */
+/* ---------- 首页：探索区 ---------- */
 
 .explore {
   margin-bottom: 22px;
@@ -1104,19 +1195,10 @@ input[type="file"]:hover::file-selector-button {
   color: var(--muted);
 }
 
-/* 卡片上的标签比探索区再紧一档：它是元信息，
-   不该跟照片和标题抢注意力 */
-.shot-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
-}
-
-.shot-tags .tag-chip {
-  padding: 3px 10px;
-  font-size: 12px;
-}
+/* 0.14 删掉了这里的 .shot-tags / .shot-tags .tag-chip（卡片上的标签胶囊）：
+   档位改成一行只显值、不再是筛选入口，卡片上的点选整块退场。
+   筛选入口剩探索区一处；0.15 它会改成按维度分组的分面筛选。
+   要找回来，去 git 历史里翻 0.13 那版。 */
 
 /* 标签用量。压透明度而不是换成第三种灰 ——
    DESIGN.md 明确说 --text 和 --muted 之间不再加层级 */
