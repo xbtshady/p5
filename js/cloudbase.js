@@ -18,7 +18,7 @@
  *   getCurrentUser()            → user | null   查当前登录用户（未登录返回 null）
  *   uploadPhoto(file, ext)      → path          上传照片，返回桶内路径
  *   createPhoto(meta)           → row           落库（meta.tags / meta.aiTips 会先清洗）
- *   listPhotos({ tag })         → rows          当前用户的照片列表，可按标签筛
+ *   listPhotos({ tags })         → rows          当前用户的照片列表，可按档位数组筛（AND）
  *   listTagCounts()             → [{tag,count}] 标签用量，倒序（客户端聚合，见函数注释）
  *   cleanTags(text|array)       → string[]      档位归一化（切分/去空/去重/截断，含冒号拦截）
  *   tagLimits()                 → {len,count}   档位的长度与数量上限，给界面做提示
@@ -350,26 +350,26 @@
   /**
    * 当前用户的照片，时间倒序。RLS 保证只会返回本人的行。
    *
-   * options.tag 存在时只返回带这个标签的照片：
-   *   .contains('tags', ['低机位']) → postgREST 的 tags=cs.{低机位}
-   *   → PG 的 tags @> '{低机位}' → 走 photo_notes_tags_idx（GIN）
+   * options.tags 是「维度:值」编码的数组（0.15 分面筛选）：
+   *   .contains('tags', ['镜头:中长焦','光线:逆光']) → postgREST 的 tags=cs.{镜头:中长焦,光线:逆光}
+   *   → PG 的 tags @> '{镜头:中长焦,光线:逆光}' → 走 photo_notes_tags_idx（GIN）
+   * 数组包含天然是 AND：选中的每个档位都得命中。单值也传数组，语义只有一种。
    *
-   * ⚠️ 这里用 cleanTags(tag)[0] 而不是 cleanTag(tag)：
+   * ⚠️ 这里用 cleanTags 而不是逐个 cleanTag：
    *   cleanTag 是「已切分之后」的原子清洗，单独喂 '低机位,' 会把逗号留在里面，
    *   拼成 cs.{低机位,} 就永远筛不出东西。走 cleanTags 会先按分隔符切开，
-   *   脏输入也能收敛成一个干净标签。传进来的值可能来自 URL，不能假设它干净。
+   *   脏输入也能收敛成干净标签。传进来的值可能来自 URL，不能假设它干净。
    */
   async function listPhotos(options) {
     await init();
 
-    var cleaned = options && options.tag ? cleanTags(options.tag) : [];
-    var tag = cleaned[0] || "";
+    var cleaned = options && options.tags ? cleanTags(options.tags) : [];
 
     var query = db
       .from("photo_notes")
       .select("id,storage_path,title,note,tags,ai_tips,created_at");
 
-    if (tag) query = query.contains("tags", [tag]);
+    if (cleaned.length) query = query.contains("tags", cleaned);
 
     var res = unwrap(
       await query.order("created_at", { ascending: false }),

@@ -33,36 +33,43 @@
     <main class="feed-wrap">
       <p v-if="error" class="error">{{ error }}</p>
 
-      <!-- 探索：标签云，用来按主题聚合。
-           这是「以后拍照前查参考」的主要入口 —— 想练低机位就点 #低机位，
-           比按时间往下翻有效得多。卡片上的标签点了走的是同一个动作。 -->
-      <section class="explore" v-if="tagCounts.length || activeTag">
+      <!-- 探索：按维度分组的分面筛选（0.15）。
+           这是「以后拍照前查参考」的主要入口 —— 想练中长焦就点「中长焦」，
+           再叠一个「逆光」就是中长焦的逆光案例，比按时间往下翻有效得多。
+           维度内单选（点同维度的新值是替换，再点一次是取消），跨维度叠加。 -->
+      <section class="explore" v-if="facetGroups.length || activeTags.length">
         <h2 class="explore-title">探索</h2>
 
-        <div class="tag-row">
-          <button
-            v-for="t in tagCounts"
-            :key="t.tag"
-            type="button"
-            class="tag-chip"
-            :class="{ 'is-on': t.tag === activeTag }"
-            :disabled="busy"
-            :aria-pressed="t.tag === activeTag ? 'true' : 'false'"
-            @click="filterBy(t.tag)"
-          >{{ t.tag }}<span class="tag-count">{{ t.count }}</span></button>
+        <!-- 一组一个维度。组名 / 胶囊复用新增页的 .tag-group-name / .tag-row / .tag-chip：
+             同一套视觉语言，两页看起来是一个系统 -->
+        <div class="explore-group" v-for="g in facetGroups" :key="g.name">
+          <span class="tag-group-name">{{ g.name }}</span>
+          <div class="tag-row">
+            <button
+              v-for="v in g.values"
+              :key="v.tag"
+              type="button"
+              class="tag-chip"
+              :class="{ 'is-on': isActive(v.tag) }"
+              :disabled="busy"
+              :aria-pressed="isActive(v.tag) ? 'true' : 'false'"
+              @click="filterBy(v.tag)"
+            >{{ v.value }}<span class="tag-count">{{ v.count }}</span></button>
+          </div>
         </div>
 
-        <!-- 筛选态要能一眼看出来「现在不是全部」，否则会以为照片丢了 -->
-        <p class="explore-active" v-if="activeTag">
-          <span>只看 #{{ activeTag }}</span>
-          <button class="text-btn" type="button" :disabled="busy" @click="filterBy(activeTag)">
+        <!-- 筛选态要能一眼看出来「现在不是全部」，否则会以为照片丢了。
+             单项取消 = 再点那个已高亮的胶囊；这行只负责一眼可见 + 全部清除 -->
+        <p class="explore-active" v-if="activeTags.length">
+          <span>只看 {{ activeText }}</span>
+          <button class="text-btn" type="button" :disabled="busy" @click="clearFilter">
             清除
           </button>
         </p>
       </section>
 
       <p v-if="!error && !photos.length" class="empty">
-        {{ activeTag ? '这个标签下还没有照片。' : '还没有照片。点右上角 ＋ 记下第一张。' }}
+        {{ activeTags.length ? '这个筛选下还没有照片。' : '还没有照片。点右上角 ＋ 记下第一张。' }}
       </p>
 
       <ul class="feed" v-if="photos.length">

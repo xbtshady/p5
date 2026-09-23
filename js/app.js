@@ -1,22 +1,23 @@
 /**
- * 首页（照片列表）逻辑 —— 0.14 版（卡片档位行 + 原地展开）
+ * 首页（照片列表）逻辑 —— 0.15 版（分面筛选）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
  *   2. 取当前用户的照片（RLS 只会返回本人的行，前端不传也不该传归属条件）
  *   3. 私有桶拿不到直链，渲染前批量换成临时访问链接
- *   4. 取一次标签用量，给「探索」区做标签云
+ *   4. 取一次档位用量，给「探索」区分组做分面筛选
  *   5. 卡片右上角可删除：二次确认后先删行、再删桶里的文件
- *   6. 点标签筛选（探索区的入口），再点一次取消
+ *   6. 点档位筛选（维度内单选、跨维度叠加），再点一次取消
  *   7. 卡片默认只露一行档位值 + 技巧条数，点日期那行原地展开详情（0.14）
  *
  * 关于「刷新时闪一下」：沿用 0.1 定下的约定 —— 先把要显示的内容全部确定好，
- * 再 mount Vue。所以照片列表、临时链接、标签用量都在 mount 之前就备齐了。
+ * 再 mount Vue。所以照片列表、临时链接、档位用量都在 mount 之前就备齐了。
  *
  * 筛选为什么一律走服务端查询，而不是在前端过滤已取回的数组：
- *   筛过一次之后手上的列表就不是全集了（只有带该标签的那几张），
+ *   筛过一次之后手上的列表就不是全集了（只有命中的那几张），
  *   再在前端筛只会越筛越少。取消筛选时更是只能重新取。
- *   所以每次切标签都重新查一次，语义永远一致。
+ *   所以每次改选中项都重新查一次，语义永远一致。
+ *   多值叠加靠 contains 的 AND 语义（见 cloudbase.js 的 listPhotos）。
  */
 (function () {
   var boot = document.getElementById("boot");
@@ -35,11 +36,9 @@
   var ref = Vue.ref;
   var computed = Vue.computed;
   var P5 = window.P5 || {};
-
-  // 标签云最多显示几个。个人项目里标签本来就收敛（预置清单只有 11 个），
-  // 但自定义标签攒多了会把「探索」区撑成一大片，所以封个数。
-  // 筛选中的那个标签一定会出现，不受这个上限影响。
-  var TAG_CLOUD_MAX = 12;
+  // 维度字典（js/facets.js）。解码 / 判断基础维度 / 取值域顺序都读它一处，
+  // 页面里不另抄一份维度表
+  var Facets = window.P5Facets || {};
 
   // Vant 的函数式组件挂在全局 vant 上（不是 Vue 插件的一部分）
   var vantLib = window.vant || {};
@@ -60,10 +59,10 @@
 
   /**
    * 取一批照片，并换成可以进 <img src> 的临时链接。
-   * tag 传空串表示不筛。
+   * tags 是选中的档位数组（空数组 = 不筛），AND 语义由服务端 contains 保证。
    */
-  async function loadPhotos(tag) {
-    var rows = await P5.listPhotos(tag ? { tag: tag } : null);
+  async function loadPhotos(tags) {
+    var rows = await P5.listPhotos(tags && tags.length ? { tags: tags } : null);
 
     var paths = rows
       .map(function (r) {
@@ -126,7 +125,7 @@
 
     if (!error) {
       try {
-        photos = await loadPhotos("");
+        photos = await loadPhotos([]);
         tagCounts = await P5.listTagCounts();
       } catch (e) {
         error = e.message || String(e);
@@ -137,10 +136,11 @@
       setup: function () {
         // 渲染用的列表。删除要就地改它，所以外面那个 photos 数组只当初始数据源
         var list = ref(photos);
-        // 标签用量，给探索区做标签云
+        // 档位用量（扁平的 {tag,count}），给分面分组当原料
         var counts = ref(tagCounts);
-        // 当前筛选的标签，空串 = 没筛
-        var activeTag = ref("");
+        // 当前选中的档位（编码后的「维度:值」数组），空 = 没筛。
+        // 同一维度最多占一项 —— 维度内单选由 filterBy 保证
+        var activeTags = ref([]);
         var busy = ref(false);
         var err = ref(error);
 
@@ -200,54 +200,131 @@
         }
 
         /**
-         * 标签云。用量倒序取前 TAG_CLOUD_MAX 个。
+         * 把扁平的用量 [{tag,count}] 折成按维度分组的面（0.15）。
          *
-         * 当前筛选中的那个一定带上 —— 否则筛到一个冷门标签后，它自己从云里消失了，
-         * 界面上就没有任何地方能再点它来取消，只能整页刷新。
+         * 三条规则：
+         *   1. **基础维度按字典顺序在前，AI 追加的按用量序接在后面** ——
+         *      组顺序稳定，扫的时候不用每次重新找「镜头」在哪
+         *   2. 基础维度**组内的值按值域顺序**（和新增页的候选一致），AI 维度的值按用量倒序
+         *   3. **「不确定」不进筛选区**，和卡片上的显示规则同一条：它没有筛选价值。
+         *      拆不出来的脏标签（旧自由标签遗留）也一并跳过 —— 点了也筛不出东西
+         *
+         * 只显示库里真用过的值，不把整个值域铺出来：空档位点进去永远是空列表。
+         * 用量上限由「维度数 × 用过的值」天然收住，不需要标签云时代那个 TAG_CLOUD_MAX。
          */
-        var tagCloud = computed(function () {
-          var all = counts.value;
-          var top = all.slice(0, TAG_CLOUD_MAX);
-          if (!activeTag.value) return top;
+        var facetGroups = computed(function () {
+          var order = [];
+          var byName = Object.create(null);
 
-          var already = top.some(function (t) {
-            return t.tag === activeTag.value;
+          counts.value.forEach(function (c) {
+            var d = Facets.decode ? Facets.decode(c.tag) : null;
+            if (!d) return;
+            if (d.value === Facets.UNCERTAIN) return;
+
+            if (!byName[d.name]) {
+              byName[d.name] = [];
+              order.push(d.name);
+            }
+            byName[d.name].push({ tag: c.tag, value: d.value, count: c.count });
           });
-          if (already) return top;
 
-          return top.concat(
-            all.filter(function (t) {
-              return t.tag === activeTag.value;
+          function baseIndex(name) {
+            var list = Facets.BASE || [];
+            for (var i = 0; i < list.length; i++) {
+              if (list[i].name === name) return i;
+            }
+            return 99;
+          }
+
+          return order
+            .sort(function (a, b) {
+              var ai = baseIndex(a);
+              var bi = baseIndex(b);
+              // 稳定排序：同为基础（或同为追加）时保持用量倒序的相对次序
+              return ai - bi;
             })
-          );
+            .map(function (name) {
+              var values = byName[name];
+              var domain = Facets.valuesOf ? Facets.valuesOf(name) : null;
+
+              if (domain) {
+                values.sort(function (a, b) {
+                  var ai = domain.indexOf(a.value);
+                  var bi = domain.indexOf(b.value);
+                  // 值域外的值（AI 给了、人留下了的）排在最后
+                  if (ai < 0) ai = domain.length + values.length;
+                  if (bi < 0) bi = domain.length + values.length;
+                  return ai - bi;
+                });
+              }
+
+              return { name: name, values: values };
+            });
+        });
+
+        /** 某个档位当前是否被选中 */
+        function isActive(tag) {
+          return activeTags.value.indexOf(tag) >= 0;
+        }
+
+        /** 筛选态那行的文字：只显示值，和卡片一个口径 */
+        var activeText = computed(function () {
+          return activeTags.value
+            .map(function (t) {
+              var d = Facets.decode ? Facets.decode(t) : null;
+              return d ? d.value : t;
+            })
+            .join(" + ");
         });
 
         /**
-         * 切标签筛选。
+         * 改选中项 —— 真正干活的那个（filterBy / clearFilter 都走它）。
          *
-         * 传空串 = 取消筛选。传当前已选的那个 = 再点一次也是取消（开关语义），
-         * 这样探索区的「清除」和「点当前标签」行为一致，不用解释两套。
-         *
-         * ⚠️ activeTag 在查询**成功之后**才改：查询失败时界面应该保持原样，
-         * 不能出现「标签高亮了但列表还是上一批」这种自相矛盾的状态。
+         * ⚠️ activeTags 在查询**成功之后**才改：查询失败时界面应该保持原样，
+         * 不能出现「胶囊高亮了但列表还是上一批」这种自相矛盾的状态。
          */
-        async function filterBy(tag) {
-          if (busy.value) return;
-
-          var next = tag === activeTag.value ? "" : tag;
-
+        async function applyFilter(next) {
           busy.value = true;
           err.value = "";
 
           try {
             var rows = await loadPhotos(next);
             list.value = rows;
-            activeTag.value = next;
+            activeTags.value = next;
           } catch (e) {
             err.value = e.message || String(e);
           } finally {
             busy.value = false;
           }
+        }
+
+        /**
+         * 点一个档位筛选（0.15）—— 维度内单选、跨维度叠加：
+         *   - 点已选中的那个 = 取消这一项（开关语义）
+         *   - 点同维度的另一个值 = 替换掉原来那个（「镜头」不可能同时是中长焦和广角）
+         *   - 点别的维度 = 叠加一项，结果是同时满足（AND）
+         */
+        async function filterBy(tag) {
+          if (busy.value) return;
+
+          var d = Facets.decode ? Facets.decode(tag) : null;
+          var picked = isActive(tag);
+
+          var next = activeTags.value.filter(function (t) {
+            if (t === tag) return false;
+            var td = Facets.decode ? Facets.decode(t) : null;
+            return !(td && d && td.name === d.name);
+          });
+
+          if (!picked) next.push(tag);
+
+          await applyFilter(next);
+        }
+
+        /** 清除全部筛选 */
+        async function clearFilter() {
+          if (busy.value || !activeTags.value.length) return;
+          await applyFilter([]);
         }
 
         /**
@@ -297,13 +374,13 @@
               return x.id !== p.id;
             });
 
-            // 标签用量跟着变了，重取一次。不取的话，删掉最后一张带 #低机位 的照片后，
-            // 探索区那个标签还挂着「1」，点进去却是空的。
+            // 档位用量跟着变了，重取一次。不取的话，删掉最后一张中长焦的照片后，
+            // 探索区那组里还挂着「1」，点进去却是空的。
             try {
               counts.value = await P5.listTagCounts();
             } catch (ce) {
               // 只是个数字没更新，不影响用 —— 不值得让整次删除显示成失败
-              console.warn("[P5] 删除后刷新标签用量失败:", ce);
+              console.warn("[P5] 删除后刷新档位用量失败:", ce);
             }
           } catch (e) {
             err.value = e.message || String(e);
@@ -314,14 +391,17 @@
 
         return {
           photos: list,
-          tagCounts: tagCloud,
-          activeTag: activeTag,
+          facetGroups: facetGroups,
+          activeTags: activeTags,
+          activeText: activeText,
+          isActive: isActive,
           busy: busy,
           error: err,
           scrolled: scrolled,
           logout: logout,
           preview: preview,
           filterBy: filterBy,
+          clearFilter: clearFilter,
           toggle: toggle,
           remove: remove
         };

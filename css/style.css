@@ -1185,6 +1185,12 @@ input[type="file"]:hover::file-selector-button {
   letter-spacing: 0.02em;
 }
 
+/* 0.15 分面筛选：一组一个维度。组名 / 胶囊直接复用新增页的
+   .tag-group-name / .tag-row / .tag-chip —— 两页同一套视觉语言 */
+.explore-group + .explore-group {
+  margin-top: 12px;
+}
+
 /* 筛选态提示。必须显眼到「一眼看出这不是全部」，否则会以为照片丢了 */
 .explore-active {
   display: flex;
