@@ -1,5 +1,5 @@
 /**
- * 新增照片页逻辑 —— 0.13 版（维度档位 + AI 闭环）
+ * 新增照片页逻辑 —— 0.19c 版（折叠分组 + 单选维度弹层 + 底部保存条）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
@@ -7,6 +7,13 @@
  *   3. AI 闭环：生成提示词 → 复制 → 连照片一起发给外部 AI → 把它回的 JSON 粘回来
  *      → 档位和技巧自动填好
  *   4. 扫一眼确认（不对的就点掉）→ 提交 → 上传 → 落库 → 回列表
+ *
+ * 0.19c 相对 0.13 的结构变化（REDESIGN §3.3）：
+ *   - 页面拆成三个可折叠分组：基本信息（默认展开）/ 档位 / AI 技巧（都默认折叠）
+ *   - 5 个单选维度不再平铺胶囊，改成「一行一个 + 底部弹层选」；
+ *     多选维度（姿势）和 AI 追加维度仍是胶囊 —— 判据直接用 P5Facets.isMulti，
+ *     别在这里另写一份「哪几个是单选」的名单（改字典时两边会不一致）
+ *   - 保存按钮移到底部固定条（在 HTML 里，这里只管 busy / 禁用态）
  *
  * 三条硬约定：
  *   - 上传失败绝不落库。宁可报错让用户重试，也不要留下一条指向不存在文件的记录。
@@ -22,7 +29,8 @@
  *
  * ⚠️ 回填**不自动入库**：解析结果先铺到界面上，人点了保存才算数。
  *    AI 会错，而错标签比没标签更坏 —— 会把参考库污染成「你以为自己是中长焦拍的」。
- *    拦截放在确认界面（人看一眼就能改），不靠程序硬丢。
+ *    拦截放在确认界面（人看一眼就能改），不靠程序硬丢。所以回填成功后
+ *    **自动展开档位组和技巧组**：折叠着就等于没让人看见。
  *
  * 档位这件事和 js/facets.js 怎么分工（别越界）：
  *   - **页面不写死任何值域**：有哪些维度、每个维度有哪些值，全从 P5Facets.BASE 来。
@@ -150,6 +158,9 @@
         var busy = ref(false);
         var statusText = ref("保存中…");
         var err = ref(error);
+        // 错误提示那个节点的引用（0.19c）。底部固定保存条会盖住页面下沿，
+        // 出错时得主动把这行提示滚进视野，否则表现就是「点了保存没反应」
+        var errBox = ref(null);
 
         /* ---- AI 闭环的状态（0.13） ---- */
         var promptText = ref("");   // 生成出来的提示词，放只读框里显示（复制失败时手动抄）
@@ -160,6 +171,104 @@
         var tips = ref([]);         // AI 给的技巧，回填后显示、可逐条删
         var whyText = ref("");      // AI 每条判断的依据，拼成一行给人工确认用
         var feedback = ref("");     // 灰字反馈（已复制 / 填了几个档位）
+
+        /* ---- 折叠分组（0.19c） ----
+         * 只有「展开 / 收起」这一个状态，内容一律留在 DOM 里（v-show）：
+         * 切换分组不该丢已经填了一半的标题、描述、档位。
+         * 默认只展开基本信息 —— 打开页面第一眼是「选照片」，不是一堆档位胶囊。 */
+        var open = ref({ basic: true, facets: false, tips: false });
+
+        function toggleGroup(key) {
+          open.value[key] = !open.value[key];
+        }
+
+        /* ---- 单选维度的底部选择器（0.19c） ---- */
+
+        /**
+         * 「不填」在 picker 里的值。
+         *
+         * 不用空串：Vant 的 picker 靠 `option.value === value` 找初始选中项，
+         * 空串容易被当成「没传值」，于是沿用上一次那一列的选中位置 ——
+         * 表现就是「打开一个没填过的维度，游标却停在别处」。
+         * 用一个正常输入永远造不出来的哨兵串，匹配就是确定的。
+         * 同时 onPickConfirm 也把空串当清空处理，两条路都兜住。
+         */
+        var NONE = "\u0000";
+
+        var pickerOpen = ref(false);
+        var pickerName = ref("");
+        // picker 的选中值，永远是长度 1 的数组（单列）
+        var pickerValue = ref([NONE]);
+
+        var pickerTitle = computed(function () {
+          return pickerName.value + "（选一个）";
+        });
+
+        /**
+         * 列 = 「不填」+ 这一维度所有可选值。
+         * 值的来源是 chipValues，**不是 g.values** —— AI 自己定的值（不在候选里的
+         * loose 值）必须也出现在列里，否则那个值就变成「选上了却看不见、也换不掉」，
+         * 而它照样会被 toTags 写进库。带圆点规则在 0.12 就定下来了，这里保持一致。
+         */
+        var pickerColumns = computed(function () {
+          var g = groupByName(pickerName.value);
+          var cols = [{ text: "不填", value: NONE }];
+
+          if (!g) return cols;
+
+          chipValues(g).forEach(function (v) {
+            cols.push({ text: isLoose(g, v) ? v + "（AI 给的）" : v, value: v });
+          });
+
+          return cols;
+        });
+
+        /** 当前维度的定义（来自界面分组，不是字典 —— 追加维度也在里面） */
+        function groupByName(name) {
+          var all = facetGroups.value;
+
+          for (var i = 0; i < all.length; i++) {
+            if (all[i].name === name) return all[i];
+          }
+
+          return null;
+        }
+
+        /** 打开选择器，并把当前值设为初始选中项 */
+        function openPicker(name) {
+          if (busy.value) return;
+
+          pickerName.value = name;
+          pickerValue.value = [pickedValue(name) || NONE];
+          pickerOpen.value = true;
+        }
+
+        /**
+         * 确认选择。
+         *
+         * 语义是「设置」而不是「切换」：先把该维度的值全清掉，再放新的。
+         * 所以清空只有「不填」这一条路 —— picker 里选同一个值再确认不会变成取消，
+         * 那太容易误伤（用户想保留，结果点掉了）。
+         *
+         * 加新值仍然走 P5F.toggle（在清干净的基础上），
+         * 让单选 / 多选、合法值的规则始终只有 facets.js 一份。
+         */
+        function onPickConfirm(e) {
+          var vals = (e && e.selectedValues) || pickerValue.value || [];
+          var raw = vals.length ? String(vals[0]) : "";
+
+          setFacet(pickerName.value, raw === NONE || raw === "" ? "" : raw);
+          pickerOpen.value = false;
+        }
+
+        function setFacet(name, value) {
+          var next = facets.value.filter(function (f) {
+            return !f || f.name !== name;
+          });
+
+          facets.value = value ? P5F.toggle(next, name, value) : next;
+          err.value = "";
+        }
 
         /**
          * 选完图（van-uploader 的 after-read）：
@@ -355,6 +464,13 @@
 
           feedback.value = msg;
           replyOpen.value = false;
+
+          // 回填成功后自动展开这两组（0.19c）。
+          // 理由不是「方便」而是「不展开就等于没确认」：档位和技巧都要人扫一眼、
+          // 点掉不对的才算数（回填**不自动入库**），折叠着人根本看不见。
+          // 技巧一条都没有就不展开了 —— 展开一个空组只是噪音，摘要上「未填」已够。
+          open.value.facets = true;
+          if (tips.value.length) open.value.tips = true;
         }
 
         /* ---------------- 档位 ---------------- */
@@ -385,6 +501,42 @@
 
           return groups;
         });
+
+        /**
+         * 单选维度走「一行一个 + 弹层」，多选维度走胶囊。
+         *
+         * 判据直接用 P5F.isMulti —— 它对 6 个基础维度查字典（只有姿势是多选），
+         * **对 6 个之外的维度一律返回 true**。所以 AI 追加的维度（道具 / 场景…）
+         * 自动落到胶囊那一边，正好是 REDESIGN §3.3 要的「只有多选维度和 AI 追加维度
+         * 保留胶囊」，不需要在这里另列一份名单。
+         *
+         * 页面里绝不能写死「镜头 / 时段 / 光线 / 视角 / 景别 是单选」——
+         * 那份名单在 facets.js，改字典时这里不用动。
+         */
+        var singleGroups = computed(function () {
+          return facetGroups.value.filter(function (g) {
+            return !P5F.isMulti(g.name);
+          });
+        });
+
+        var multiGroups = computed(function () {
+          return facetGroups.value.filter(function (g) {
+            return P5F.isMulti(g.name);
+          });
+        });
+
+        /**
+         * 某个维度当前选中的值，给单选行显示用。
+         * 单选维度正常只会有一个值；万一编辑态里出现两个（手点 + 回填交错），
+         * 取第一个显示 —— 摘要那一行会把全部列出来，不会被吞掉。
+         */
+        function pickedValue(name) {
+          var hit = facets.value.filter(function (f) {
+            return f && f.name === name;
+          });
+
+          return hit.length ? hit[0].value : "";
+        }
 
         /**
          * 一个维度该显示哪些值：候选（字典 / 池子）在前，**编辑态里不在候选中的值接在后**。
@@ -431,6 +583,30 @@
             : "拿不准的空着就行，不必每一项都填";
         });
 
+        /* ---- 折叠组头部的摘要（0.19c） ----
+         * 用途是「不用展开也知道填了什么」（REDESIGN §5.3）。
+         * 宽度只有一行的余量，超长由 CSS 省略号处理，这里不做截断 ——
+         * 截断会让「已选 3 项」变成「已选 3 项…」这种看起来像出错的文案。 */
+
+        var basicSummary = computed(function () {
+          if (title.value) return title.value;
+          return upload.value ? "已选照片，还没写标题" : "还没选照片";
+        });
+
+        var facetSummary = computed(function () {
+          if (!facets.value.length) return "未填";
+
+          return facets.value
+            .map(function (f) {
+              return f.value;
+            })
+            .join(" / ");
+        });
+
+        var tipsSummary = computed(function () {
+          return tips.value.length ? tips.value.length + " 条" : "未填";
+        });
+
         async function submit() {
           if (busy.value) return;
 
@@ -459,6 +635,14 @@
             err.value = e.message || String(e);
             busy.value = false;
             statusText.value = "保存中…";
+
+            // 提示行在表单最下方、又紧挨着底部固定条，不滚一下是看不见的。
+            // 等一帧再滚：err 刚改，那个 <p v-if="error"> 还没挂上，此刻 errBox 仍是 null
+            nextTick(function () {
+              if (errBox.value && errBox.value.scrollIntoView) {
+                errBox.value.scrollIntoView({ block: "center" });
+              }
+            });
           }
         }
 
@@ -469,9 +653,25 @@
           sizeText: sizeText,
           title: title,
           note: note,
-          facetGroups: facetGroups,
           facets: facets,
           facetHint: facetHint,
+          /* ---- 0.19c：折叠分组 + 单选维度弹层 ----
+           * facetValue 就是内部的 pickedValue：模板里叫 valueOf 会和
+           * Object.prototype.valueOf 撞脸（这次没出事，但没人愿意下次再赌一把） */
+          open: open,
+          toggleGroup: toggleGroup,
+          singleGroups: singleGroups,
+          multiGroups: multiGroups,
+          facetValue: pickedValue,
+          basicSummary: basicSummary,
+          facetSummary: facetSummary,
+          tipsSummary: tipsSummary,
+          pickerOpen: pickerOpen,
+          pickerTitle: pickerTitle,
+          pickerColumns: pickerColumns,
+          pickerValue: pickerValue,
+          openPicker: openPicker,
+          onPickConfirm: onPickConfirm,
           chipValues: chipValues,
           isLoose: isLoose,
           isOn: isOn,
@@ -491,6 +691,7 @@
           busy: busy,
           statusText: statusText,
           error: err,
+          errBox: errBox,
           onRead: onRead,
           onDelete: onDelete,
           submit: submit

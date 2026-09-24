@@ -67,6 +67,16 @@
   /* 卡片之间。0.16 是 38，0.19b 收到 28 —— 照片下面已经有细节线分段，
      不需要那么大的空隙，「一条接一条」的手册节奏是这个值撑出来的 */
   --card-gap: 28px;
+  /* 主按钮高。Vant 的 normal / block 本来只是宽度修饰，之前给了 44 / 46 两个高，
+     同一个系统里不该有两档主按钮 —— 统一到这里 */
+  --btn-h: 44px;
+  /* 底部固定保存条总高（含 1px 上边界线）：10 + --btn-h + 10 + 1。
+     新增页的 .form-wrap 拿它算 padding-bottom —— 改按钮高度不用改两处 */
+  --savebar-h: 65px;
+  /* 左右留白。横屏刘海（iPhone 侧向）会压到文字，所以文字块统一读这两个值；
+     ⚠️ 不能加在 body 上 —— 首页照片要全出血，加了会连照片一起推进来 */
+  --gutter-l: calc(var(--gutter) + env(safe-area-inset-left, 0px));
+  --gutter-r: calc(var(--gutter) + env(safe-area-inset-right, 0px));
 }
 
 * {
@@ -487,6 +497,17 @@ input[type="file"]::file-selector-button {
   letter-spacing: 0.2em;
 }
 
+/* 新增页顶栏：返回键和品牌同在一组（0.19c）。
+   品牌跟着键走、不居中 —— 居中就得靠一个「假的对称占位」撑着，
+   而那一层在窄屏上会被压成半截。间隔和 .topbar-actions 同值，
+   两边键的热区都不会互相咬住 */
+.topbar-lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .topbar-actions {
   display: flex;
   align-items: center;
@@ -640,17 +661,19 @@ input[type="file"]::file-selector-button {
 
 /* 错误提示是唯一还留在 feed-wrap 直下的文字块，给它自己的留白 */
 .feed-wrap > .error {
-  margin: 0 var(--gutter) 14px;
+  margin: 0 var(--gutter-r) 14px var(--gutter-l);
 }
 
-/* 新增页这种「表单页」的内容区：左右留白由这里统一给 */
+/* 新增页这种「表单页」的内容区：左右留白由这里统一给。
+   底部要空出固定保存条那一块（--savebar-h）+ 30px 余量 ——
+   不留的话最后一组会被条盖住，而它正好是「AI 技巧」那一组 */
 .form-wrap {
   width: 100%;
   max-width: 560px;
   margin: 0 auto;
-  padding: 0 var(--gutter);
+  padding: 0 var(--gutter-r) 0 var(--gutter-l);
   padding-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 6px);
-  padding-bottom: 28px;
+  padding-bottom: calc(var(--savebar-h) + 30px + env(safe-area-inset-bottom, 0px));
 }
 
 .empty {
@@ -800,7 +823,7 @@ input[type="file"]::file-selector-button {
    注意是**全出血**的线（.shot-body 没有左右内边距，留白由它内部各块自己加）。
    没有白底、没有圆角、没有阴影：0.16 定的规矩（层次靠留白 + 细节线）不破 */
 .shot-body {
-  padding: 12px var(--gutter) 0;
+  padding: 12px var(--gutter-r) 0 var(--gutter-l);
   border-top: 1px solid var(--border);
 }
 
@@ -1057,7 +1080,7 @@ input[type="file"]::file-selector-button {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 0 var(--gutter) 16px;
+  margin: 0 var(--gutter-r) 16px var(--gutter-l);
   font-size: 13px;
   color: var(--muted);
 }
@@ -1204,14 +1227,19 @@ input[type="file"]::file-selector-button {
 .ai-bar .btn {
   flex: 1;
   width: auto;
+  min-height: var(--touch-min);
   padding: 10px 12px;
   font-size: 13px;
 }
 
-/* 提示词 / 粘贴框。字号降一档：那是给人「复制」的机器文本，不是拿来读的内容 */
+/* 提示词 / 粘贴框。
+   ⚠️ 字号必须 ≥ 16px —— 粘贴框会被 toggleReply 主动 focus，而 iOS Safari 只要
+   聚焦时字号小于 16px 就自动放大整页（P0.1）。之前这里图「机器文本降一档」
+   写了 13px，是 0.19a 扫 P0.1 时的漏网项：那次只盯着 van-field，
+   漏了这两个裸 textarea。排印上也不亏 —— 提示词和 JSON 都是要一眼扫过去的长文本 */
 .ai-box {
   margin-bottom: 10px;
-  font-size: 13px;
+  font-size: 16px;
   line-height: 1.6;
 }
 
@@ -1235,6 +1263,212 @@ input[type="file"]::file-selector-button {
   gap: 12px;
 }
 
+/* ---------- 新增页：折叠分组（0.19c） ---------- */
+
+/* 三组之间只隔一条细节线，组本身透明 —— 这一版的「规格手册」感靠线和留白撑，
+   不靠卡片和阴影。线是唯一的边界 */
+.group {
+  border-top: 1px solid var(--border);
+}
+
+.group:first-child {
+  border-top: 0;
+}
+
+/* 组头：整行可点，拇指不用去找那个小箭头。
+   ⚠️ 必须是 type="button"（HTML 那份注释写了原因），<button> 默认是 submit，
+   漏了就变成「点一下组头把表单提交了」 */
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: 12px 0;
+  font-family: inherit;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.group-title {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* 摘要：不展开也知道里面填了什么。
+   占掉剩下的宽度，超长就省略号 —— 宁可看不全，也不能让这一行换行、
+   把组头撑成两行（三个组头高度必须一致，不然切换时整页会跳） */
+.group-sum {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--muted);
+  text-align: right;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 箭头。▾ 本身朝下（收起态），展开时翻上来 */
+.group-caret {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  transition: transform var(--dur) var(--ease-io);
+}
+
+.group-caret.is-open {
+  transform: rotate(180deg);
+}
+
+@media (hover: hover) {
+  .group-head:hover {
+    background: var(--ink-04);
+  }
+}
+
+.group-head:active {
+  background: var(--ink-05);
+}
+
+.group-head:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* 组体。间隙和 .form 同值（16）—— 父子两层各写一套节奏，视觉上就成了两种间距 */
+.group-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px 0 18px;
+}
+
+/* 空态（AI 技巧一条都没有时） */
+.group-empty {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* ---------- 新增页：单选维度的一行（0.19c） ---------- */
+
+/* 镜头 / 时段 / 光线 / 视角 / 景别：一行一个，读起来像规格表的一行。
+   0.12–0.19b 是把 5 个维度的所有胶囊平铺出来 —— 每维只能选一个，
+   在一堆胶囊里找一个，比直接点开一行挑要慢得多，首屏也被撑得很长 */
+.facet-rows {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+
+/* 整行可点，40px 起。行内不设左右内边距 —— 高亮色块正好落在内容区边界上，
+   和上下两条细节线对齐 */
+.facet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: 10px 0;
+  font-family: inherit;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+/* 维度名占固定一列宽，值就能上下对齐成表 —— 对不齐的话这五行只是「五行字」，
+   看起来像没排过 */
+.facet-row-name {
+  flex: 0 0 auto;
+  min-width: 4em;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* 值是这一页真正要定的东西，给正文的字号（14），不用标注的 13。
+   ⚠️ 值里可能混进 AI 自己定的（不在候选里的），长这样会被省略号截掉 ——
+   但要换掉它只需要点开这一行，弹层里能看到完整值 */
+.facet-row-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.facet-row-val.is-empty {
+  color: var(--muted);
+}
+
+.facet-row-caret {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+@media (hover: hover) {
+  .facet-row:hover:not(:disabled) {
+    background: var(--ink-04);
+  }
+}
+
+.facet-row:active:not(:disabled) {
+  background: var(--ink-05);
+}
+
+.facet-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.facet-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ---------- 新增页：底部固定保存条（0.19c） ---------- */
+
+/* 档位组 / 技巧组能折起来之后表单长度会变，保存键若跟着内容走，每次都得先滚到底
+   —— 这个页面最该省掉的一步就是它。
+   ⚠️ position: fixed 相对**视口**，前提是祖先链上没有 transform / filter / contain
+   （有的话那个祖先会变成它的包含块，条就跟着内容滚走了）。
+   新增页的 #app 是干净的：首页 .shot 的 rise 动画虽然带 transform，
+   但它在另一页、也不在这条祖先链上 */
+.sticky-save {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* 压住页面内容，但低于 .topbar(5) 和弹层（Vant 的 2000+）—— 它们不会同框 */
+  z-index: 4;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+/* 横向对齐 .form-wrap（同一个 max-width + 同一对安全区留白），
+   否则固定条里的按钮会跟表单错开一个安全区的距离。
+   底部补的是**内边距**不是外边距：iPhone 的 home indicator 会压到这条，
+   补外边距的话上面那条边界线会浮起来，看着像悬空的 */
+.sticky-save-inner {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 10px var(--gutter-r) calc(10px + env(safe-area-inset-bottom, 0px))
+    var(--gutter-l);
+}
+
 /* 压缩前后的体积对照 */
 .size-hint {
   margin: 8px 0 0;
@@ -1256,13 +1490,15 @@ input[type="file"]::file-selector-button {
 }
 
 /* 每条一块纸白；删除键靠右独立成方块，
-   避免整块变成点击区（点错了就删掉一条 AI 的提示） */
+   避免整块变成点击区（点错了就删掉一条 AI 的提示）。
+   正文 14px（P1.11）：这是要读的内容、不是标注 —— 13px 在一臂距离上偏小。
+   同一条规则首页展开态也吃（两页共用这套壳），一起跟着变。 */
 .tip-list li {
   display: flex;
   align-items: flex-start;
   gap: 10px;
   padding: 10px 11px;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.65;
   color: var(--text);
   background: var(--card);
@@ -1415,12 +1651,15 @@ input[type="file"]::file-selector-button {
   border-radius: var(--r-sm);
 }
 
+/* 主按钮高度统一走 --btn-h。Vant 的 --normal / --block 本来是「尺寸」和「宽度」
+   两个维度，之前给了 44 / 46 两档高 —— 同一个系统里不该有两种主按钮高度，
+   而且底部固定条的高度预算（--savebar-h）要靠它算出来 */
 .van-button--normal {
-  height: 44px;
+  height: var(--btn-h);
 }
 
 .van-button--block {
-  height: 46px;
+  height: var(--btn-h);
 }
 
 /* 全局给裸 input/textarea 加的边框、白底、圆角会漏进 Vant 的行内控件，

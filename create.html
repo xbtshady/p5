@@ -21,129 +21,239 @@
 
   <div id="app" v-cloak>
     <header class="topbar">
-      <a class="text-btn" href="index.html">返回</a>
-      <h1 class="topbar-brand">P5</h1>
+      <!-- 返回（0.19c）：从「返回」两个字改成左箭头图标，和 iOS / Android 惯例一致。
+           沿用首页同一套 .icon-btn（视觉 32×32、热区 40×40），不新造一个键壳 -->
+      <div class="topbar-lead">
+        <a class="icon-btn" href="index.html" aria-label="返回">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M9.5 3.5 5 8l4.5 4.5" />
+          </svg>
+        </a>
+        <h1 class="topbar-brand">P5</h1>
+      </div>
       <span class="topbar-actions"></span>
     </header>
 
     <main class="form-wrap">
       <form class="form" @submit.prevent="submit">
-        <div class="field">
-          <span class="label">照片</span>
-          <van-uploader
-            v-model="files"
-            :max-count="1"
-            :after-read="onRead"
-            :after-delete="onDelete"
-            :disabled="busy"
-          ></van-uploader>
-          <p class="size-hint" v-if="sizeText">{{ sizeText }}</p>
-        </div>
 
-        <div class="vant-block">
-          <van-cell-group inset>
-            <van-field
-              v-model="title"
-              label="标题"
-              placeholder="请输入标题"
-              :disabled="busy"
-            ></van-field>
-            <van-field
-              v-model="note"
-              label="描述"
-              type="textarea"
-              autosize
-              placeholder="请输入描述"
-              :disabled="busy"
-            ></van-field>
-          </van-cell-group>
-        </div>
+        <!-- ================= 组 1：基本信息（默认展开） =================
+             折叠组的规矩（REDESIGN §5.3）：头部 = 标题 + 当前摘要 + 箭头；
+             切换只切显示，已填内容一律不动（所以用 v-show 不用 v-if）。
+             ⚠️ 组头必须是 type="button" —— <button> 默认是 submit，
+             漏了这个属性就变成「点一下组头把表单提交了」 -->
+        <section class="group" :class="{ 'is-open': open.basic }">
+          <button
+            type="button"
+            class="group-head"
+            :aria-expanded="open.basic ? 'true' : 'false'"
+            @click="toggleGroup('basic')"
+          >
+            <span class="group-title">基本信息</span>
+            <span class="group-sum">{{ basicSummary }}</span>
+            <span class="group-caret" :class="{ 'is-open': open.basic }">▾</span>
+          </button>
 
-        <div class="field">
-          <span class="label">档位</span>
-
-          <!-- 站里不接 AI 的剪贴板闭环：复制提示词 → 连照片发给外部 AI → JSON 粘回来。
-               提示词正文见 docs/PROMPT.md -->
-          <div class="ai-bar">
-            <button type="button" class="btn ghost" :disabled="busy" @click="genPrompt">生成提示词</button>
-            <button type="button" class="btn ghost" :disabled="busy" @click="toggleReply">粘贴回填</button>
-          </div>
-
-          <!-- 只读框：自动复制成功时它是「抄得到」的备份，
-               复制失败（非 https / 权限被拒）时它就是唯一的出路 -->
-          <textarea
-            v-if="promptOpen"
-            class="ai-box"
-            rows="6"
-            readonly
-            :value="promptText"
-          ></textarea>
-
-          <div v-if="replyOpen" class="reply-wrap">
-            <textarea
-              ref="replyBox"
-              v-model="replyText"
-              class="ai-box"
-              rows="5"
-              placeholder="把 AI 回的 JSON 整段粘在这里"
-            ></textarea>
-            <button type="button" class="btn" :disabled="busy" @click="applyReply">解析并填入</button>
-          </div>
-
-          <p v-if="feedback" class="ai-note">{{ feedback }}</p>
-          <p v-if="whyText" class="ai-note">AI 的依据：{{ whyText }}</p>
-
-          <div class="tag-picker">
-            <div class="tag-group" v-for="g in facetGroups" :key="g.name">
-              <span class="tag-group-name">{{ g.label }}</span>
-              <div class="tag-row">
-                <!-- 值只能从候选里点选，没有自由输入的框 —— 一旦自由发散，
-                     「中长焦」「长焦感」「长焦压缩」会同时存在，按值筛选就废了。
-                     单选维度点新值会自动顶掉旧值（只有姿势能多选）。
-                     带圆点的是 AI 自己定的值（不在候选里），点一下就没了。 -->
-                <button
-                  v-for="val in chipValues(g)"
-                  :key="val"
-                  type="button"
-                  class="tag-chip"
-                  :class="{ 'is-on': isOn(g.name, val), 'is-loose': isLoose(g, val) }"
-                  :disabled="busy"
-                  :aria-pressed="isOn(g.name, val) ? 'true' : 'false'"
-                  @click="toggle(g.name, val)"
-                >{{ val }}</button>
-              </div>
+          <div class="group-body" v-show="open.basic">
+            <div class="field">
+              <span class="label">照片</span>
+              <van-uploader
+                v-model="files"
+                :max-count="1"
+                :after-read="onRead"
+                :after-delete="onDelete"
+                :disabled="busy"
+              ></van-uploader>
+              <p class="size-hint" v-if="sizeText">{{ sizeText }}</p>
             </div>
 
-            <p class="tag-hint">{{ facetHint }}</p>
+            <div class="vant-block">
+              <van-cell-group inset>
+                <van-field
+                  v-model="title"
+                  label="标题"
+                  placeholder="请输入标题"
+                  :disabled="busy"
+                ></van-field>
+                <van-field
+                  v-model="note"
+                  label="描述"
+                  type="textarea"
+                  autosize
+                  placeholder="请输入描述"
+                  :disabled="busy"
+                ></van-field>
+              </van-cell-group>
+            </div>
+
+            <!-- AI 闭环（0.19c 从「档位」组挪到这里）：产出的东西填的是档位和技巧，
+                 但动作本身是「把这张照片的信息填起来」的一步，和照片/标题/描述同组 -->
+            <div class="field">
+              <span class="label">AI 分析</span>
+
+              <!-- 站里不接 AI 的剪贴板闭环：复制提示词 → 连照片发给外部 AI → JSON 粘回来。
+                   提示词正文见 docs/PROMPT.md -->
+              <div class="ai-bar">
+                <button type="button" class="btn ghost" :disabled="busy" @click="genPrompt">生成提示词</button>
+                <button type="button" class="btn ghost" :disabled="busy" @click="toggleReply">粘贴回填</button>
+              </div>
+
+              <!-- 只读框：自动复制成功时它是「抄得到」的备份，
+                   复制失败（非 https / 权限被拒）时它就是唯一的出路 -->
+              <textarea
+                v-if="promptOpen"
+                class="ai-box"
+                rows="6"
+                readonly
+                :value="promptText"
+              ></textarea>
+
+              <div v-if="replyOpen" class="reply-wrap">
+                <textarea
+                  ref="replyBox"
+                  v-model="replyText"
+                  class="ai-box"
+                  rows="5"
+                  placeholder="把 AI 回的 JSON 整段粘在这里"
+                ></textarea>
+                <button type="button" class="btn" :disabled="busy" @click="applyReply">解析并填入</button>
+              </div>
+
+              <p v-if="feedback" class="ai-note">{{ feedback }}</p>
+              <p v-if="whyText" class="ai-note">AI 的依据：{{ whyText }}</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= 组 2：档位（默认折叠） ================= -->
+        <section class="group" :class="{ 'is-open': open.facets }">
+          <button
+            type="button"
+            class="group-head"
+            :aria-expanded="open.facets ? 'true' : 'false'"
+            @click="toggleGroup('facets')"
+          >
+            <span class="group-title">档位</span>
+            <span class="group-sum">{{ facetSummary }}</span>
+            <span class="group-caret" :class="{ 'is-open': open.facets }">▾</span>
+          </button>
+
+          <div class="group-body" v-show="open.facets">
+            <div class="tag-picker">
+              <!-- 单选维度（镜头 / 时段 / 光线 / 视角 / 景别）：一行一个，整行可点，
+                   弹出底部选择器。0.12–0.19b 是把 5 个维度的胶囊全平铺出来 ——
+                   每维只能选一个，扫一堆胶囊比直接挑一个慢得多，首屏也被它撑得很长。
+                   ⚠️ 一行只显示一个值，所以这一支**只放 isMulti 为假的维度**，
+                   多值的那些（姿势、AI 追加的）走下面的胶囊，否则会漏掉值 -->
+              <div class="facet-rows">
+                <button
+                  v-for="g in singleGroups"
+                  :key="g.name"
+                  type="button"
+                  class="facet-row"
+                  :disabled="busy"
+                  :aria-label="g.label + '：' + (facetValue(g.name) || '未选')"
+                  @click="openPicker(g.name)"
+                >
+                  <span class="facet-row-name">{{ g.label }}</span>
+                  <span class="facet-row-val" :class="{ 'is-empty': !facetValue(g.name) }">{{ facetValue(g.name) || '未选' }}</span>
+                  <span class="facet-row-caret">▾</span>
+                </button>
+              </div>
+
+              <!-- 多选维度（姿势）+ 库里已有的追加维度：胶囊照旧平铺。
+                   一个维度用过多少个值，本身就说明它允许多值（见 facets.js isMulti） -->
+              <div class="tag-group" v-for="g in multiGroups" :key="g.name">
+                <span class="tag-group-name">{{ g.label }}</span>
+                <div class="tag-row">
+                  <!-- 值只能从候选里点选，没有自由输入的框 —— 一旦自由发散，
+                       「中长焦」「长焦感」「长焦压缩」会同时存在，按值筛选就废了。
+                       带圆点的是 AI 自己定的值（不在候选里），点一下就没了。 -->
+                  <button
+                    v-for="val in chipValues(g)"
+                    :key="val"
+                    type="button"
+                    class="tag-chip"
+                    :class="{ 'is-on': isOn(g.name, val), 'is-loose': isLoose(g, val) }"
+                    :disabled="busy"
+                    :aria-pressed="isOn(g.name, val) ? 'true' : 'false'"
+                    @click="toggle(g.name, val)"
+                  >{{ val }}</button>
+                </div>
+              </div>
+
+              <p class="tag-hint">{{ facetHint }}</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= 组 3：AI 技巧（默认折叠） =================
+             回填成功后 js/create.js 会把这一组和档位组一起展开 ——
+             「人工确认」那一步不能省（AI 会错，错标签比没标签更坏），
+             折叠着就等于没让人看见 -->
+        <section class="group" :class="{ 'is-open': open.tips }">
+          <button
+            type="button"
+            class="group-head"
+            :aria-expanded="open.tips ? 'true' : 'false'"
+            @click="toggleGroup('tips')"
+          >
+            <span class="group-title">AI 技巧</span>
+            <span class="group-sum">{{ tipsSummary }}</span>
+            <span class="group-caret" :class="{ 'is-open': open.tips }">▾</span>
+          </button>
+
+          <div class="group-body" v-show="open.tips">
+            <ul class="tip-list" v-if="tips.length">
+              <li v-for="(t, i) in tips" :key="i">
+                <span class="tip-text">{{ t }}</span>
+                <button
+                  type="button"
+                  class="tip-x"
+                  :disabled="busy"
+                  aria-label="删掉这条技巧"
+                  @click="removeTip(i)"
+                >×</button>
+              </li>
+            </ul>
+            <p class="group-empty" v-else>
+              还没有技巧。在上面点「粘贴回填」，AI 给的拍摄小 tips 会出现在这里。
+            </p>
+          </div>
+        </section>
+
+        <p v-if="error" ref="errBox" class="error">{{ error }}</p>
+
+        <!-- 底部固定保存条（0.19c）：不随表单滚走。
+             必须留在 <form> 里 —— 它靠 native-type="submit" 提交，
+             一旦挪到 </form> 后面，按钮就点不动了。
+             position: fixed 相对视口，所以 #app 上不能出现 transform / filter
+             （那会把它变成包含块，fixed 就变成「相对 #app」了） -->
+        <div class="sticky-save">
+          <div class="sticky-save-inner">
+            <van-button
+              type="primary"
+              block
+              native-type="submit"
+              :disabled="busy || !file"
+            >{{ busy ? statusText : '保存' }}</van-button>
           </div>
         </div>
-
-        <div class="field" v-if="tips.length">
-          <span class="label">下次这样拍（AI 给的，不对就删掉）</span>
-          <ul class="tip-list">
-            <li v-for="(t, i) in tips" :key="i">
-              <span class="tip-text">{{ t }}</span>
-              <button
-                type="button"
-                class="tip-x"
-                :disabled="busy"
-                aria-label="删掉这条技巧"
-                @click="removeTip(i)"
-              >×</button>
-            </li>
-          </ul>
-        </div>
-
-        <p v-if="error" class="error">{{ error }}</p>
-
-        <van-button
-          type="primary"
-          block
-          native-type="submit"
-          :disabled="busy || !file"
-        >{{ busy ? statusText : '保存' }}</van-button>
       </form>
     </main>
+
+    <!-- 单选维度的底部选择器。
+         列首永远是「不填」—— picker 只能选不能清空，没有这个出口就变成
+         「选错了只能将错就错」，而这本手册允许空着（拿不准的空着就行） -->
+    <van-popup v-model:show="pickerOpen" position="bottom" round :safe-area-inset-bottom="true">
+      <van-picker
+        :title="pickerTitle"
+        :columns="pickerColumns"
+        v-model="pickerValue"
+        @confirm="onPickConfirm"
+        @cancel="pickerOpen = false"
+      ></van-picker>
+    </van-popup>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
