@@ -1,10 +1,10 @@
 /**
- * CloudBase 封装 —— 0.13 版（登录 + 照片存取 + 删除 + 维度档位 + AI 技巧）
+ * CloudBase 封装 —— 0.19a 版（登录 + 照片存取 + 删除 + 维度档位 + AI 技巧 + 分页）
  *
  * 职责：
  *   1. 初始化 SDK
  *   2. 登录 / 退出 / 查当前用户
- *   3. 照片：上传到私有桶、落库、列出自己的照片、换取临时访问链接、删除
+ *   3. 照片：上传到私有桶、落库、列出自己的照片（可分页）、换取临时访问链接、删除
  *   4. 标签：归一化、按标签筛选、统计标签用量
  *   5. AI 技巧：归一化（ai_tips 列，0.13 起写入）
  *
@@ -18,7 +18,10 @@
  *   getCurrentUser()            → user | null   查当前登录用户（未登录返回 null）
  *   uploadPhoto(file, ext)      → path          上传照片，返回桶内路径
  *   createPhoto(meta)           → row           落库（meta.tags / meta.aiTips 会先清洗）
- *   listPhotos({ tags })         → rows          当前用户的照片列表，可按档位数组筛（AND）
+ *   listPhotos({ tags, limit, offset })
+ *                               → rows          当前用户的照片，时间倒序；
+ *                                               tags 按档位数组筛（AND），
+ *                                               limit / offset 分页（都可选）
  *   listTagCounts()             → [{tag,count}] 标签用量，倒序（客户端聚合，见函数注释）
  *   cleanTags(text|array)       → string[]      档位归一化（切分/去空/去重/截断，含冒号拦截）
  *   tagLimits()                 → {len,count}   档位的长度与数量上限，给界面做提示
@@ -355,6 +358,11 @@
    *   → PG 的 tags @> '{镜头:中长焦,光线:逆光}' → 走 photo_notes_tags_idx（GIN）
    * 数组包含天然是 AND：选中的每个档位都得命中。单值也传数组，语义只有一种。
    *
+   * options.limit / options.offset 是 0.19a 加的分页，**都可选**：
+   *   不传 limit 就是「全部」，和以前完全一样（向后兼容，调用方不用一起改）。
+   *   传了就落到 postgREST 的 Range 上：range(offset, offset + limit - 1)。
+   *   照片攒到几十张以后，一次把全部行 + 全部临时链接拉下来在手机上很慢。
+   *
    * ⚠️ 这里用 cleanTags 而不是逐个 cleanTag：
    *   cleanTag 是「已切分之后」的原子清洗，单独喂 '低机位,' 会把逗号留在里面，
    *   拼成 cs.{低机位,} 就永远筛不出东西。走 cleanTags 会先按分隔符切开，
@@ -371,10 +379,14 @@
 
     if (cleaned.length) query = query.contains("tags", cleaned);
 
-    var res = unwrap(
-      await query.order("created_at", { ascending: false }),
-      "读取照片列表"
-    );
+    query = query.order("created_at", { ascending: false });
+
+    // range 放在最后：先把筛选和排序定下来，再圈范围
+    var limit = options && options.limit > 0 ? Math.floor(options.limit) : 0;
+    var offset = options && options.offset > 0 ? Math.floor(options.offset) : 0;
+    if (limit) query = query.range(offset, offset + limit - 1);
+
+    var res = unwrap(await query, "读取照片列表");
 
     return (res && res.data) || [];
   }

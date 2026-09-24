@@ -1,13 +1,17 @@
 /* ============================================================================
- * P5 样式表 —— 0.18（规格手册感）
+ * P5 样式表 —— 0.19a（规格手册感 + 触摸优先）
  * ============================================================================
  *
- * 三条原则（0.16 改版后）：
+ * 四条原则（0.16 定基调，0.19a 补第四条）：
  *   1. 照片是主角 —— 底色是纸白，界面不含任何彩色，唯一有颜色的东西是照片
  *   2. 层次靠**留白 + 细节线 + 字重**，不靠玻璃和阴影
  *      （0.6–0.15 那套磨砂玻璃 + 大圆角 + 光斑层已整套作废，见 DESIGN.md）
  *   3. 排印拉得开 —— 三级字号 16 / 13 / 11，数字用等宽（tabular-nums）；
  *      小节标签用大字距小字号，这是「手册」感的主要来源
+ *   4. **先算拇指，再算眼睛**（0.19a 起）—— 视觉尺寸可以小，热区必须够；
+ *      优先用 `::after { inset: 负值 }` 把热区撑到 --touch-min，
+ *      而不是把按钮本身画大（画大了排印就散）。所有 :hover 必须在
+ *      `@media (hover: hover)` 里 —— 触屏上 hover 会「粘住」不消失
  *
  * 配色与圆角只有一个来源：`:root`。三页共用（index / create / login），
  * Vant 的语义色也指回它。
@@ -40,6 +44,7 @@
   --ink-20: rgba(23, 24, 26, 0.20);     /* 输入框轮廓 */
   --ink-50: rgba(16, 18, 22, 0.50);     /* 照片删除按钮底 */
   --dark-94: rgba(16, 18, 22, 0.94);    /* 全屏看图遮罩 */
+  --scrim: rgba(16, 18, 22, 0.30);      /* 抽屉背后的压暗层 */
 
   /* ---------- 圆角：小一档，矩形感是「工具 / 手册」的一部分 ---------- */
   --r-sm: 6px;
@@ -56,10 +61,16 @@
   /* ---------- 尺寸 ---------- */
   --topbar-h: 56px;           /* 顶栏高（不含 1px 细节线），.feed-wrap 的 padding-top 读它 */
   --gutter: 18px;             /* 页面左右留白 */
+  /* 可点区域最小边长。iOS HIG 建议 44，但顶栏那三个键只隔 10px，
+     44 的放大热区会互相盖住（后画的抢走重叠区）—— 40 是这里的上限。 */
+  --touch-min: 40px;
 }
 
 * {
   box-sizing: border-box;
+  /* Android WebView / Chrome 点自定义按钮会盖一块蓝色高亮块，和我们的
+     :active 反馈打架。关掉它，按下反馈全部交给我们自己的 :active */
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Vue 挂载前隐藏整个应用，避免 {{ }} 插值被当纯文本渲染出来 */
@@ -106,7 +117,7 @@ body {
 }
 
 /* 列表页：照片要全出血，所以 body 不再给居中留白；
-   文字块的左右留白由 .explore / .shot-body 自己管。 */
+   文字块的左右留白由 .filter-bar / .shot-body 自己管。 */
 body.page-list {
   padding: 0;
   align-items: flex-start;
@@ -220,9 +231,18 @@ body.page-list {
   transition: color var(--dur) var(--ease-io), background var(--dur) var(--ease-io);
 }
 
-.pw-toggle:hover {
-  color: var(--text);
-  background: var(--ink-05);
+/* 视觉 34×34，热区 40×40 */
+.pw-toggle::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+}
+
+@media (hover: hover) {
+  .pw-toggle:hover {
+    color: var(--text);
+    background: var(--ink-05);
+  }
 }
 
 .pw-toggle svg {
@@ -331,9 +351,11 @@ input[type="file"]::file-selector-button {
     border-color var(--dur) var(--ease-io);
 }
 
-input[type="file"]:hover::file-selector-button {
-  background: var(--ink-04);
-  border-color: var(--muted);
+@media (hover: hover) {
+  input[type="file"]:hover::file-selector-button {
+    background: var(--ink-04);
+    border-color: var(--muted);
+  }
 }
 
 /* ---------- 按钮 ---------- */
@@ -353,8 +375,11 @@ input[type="file"]:hover::file-selector-button {
     transform var(--dur-fast) var(--ease-io);
 }
 
-.btn:hover:not(:disabled) {
-  background: var(--accent-ink);
+/* hover 只在真有鼠标的设备上生效 —— 触屏上 hover 会「粘住」不消失 */
+@media (hover: hover) {
+  .btn:hover:not(:disabled) {
+    background: var(--accent-ink);
+  }
 }
 
 /* 按下去要有「被按到」的反馈，但只缩 1.5%，多了就显得浮夸 */
@@ -373,9 +398,11 @@ input[type="file"]:hover::file-selector-button {
   border: 1px solid var(--border-strong);
 }
 
-.btn.ghost:hover:not(:disabled) {
-  background: var(--ink-04);
-  border-color: var(--muted);
+@media (hover: hover) {
+  .btn.ghost:hover:not(:disabled) {
+    background: var(--ink-04);
+    border-color: var(--muted);
+  }
 }
 
 .text-btn {
@@ -393,9 +420,22 @@ input[type="file"]:hover::file-selector-button {
     transform var(--dur-fast) var(--ease-io);
 }
 
-.text-btn:hover:not(:disabled) {
-  background: var(--ink-04);
-  border-color: var(--muted);
+/* 需要达到触摸最小尺寸的文字按钮（筛选抽屉的「清除 / 完成」、「加载更多」）。
+   视觉还是那个小描边键，靠内边距把高度顶到 --touch-min —— 不放大字号，
+   排印层级不动 */
+.text-btn.is-tap {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  .text-btn:hover:not(:disabled) {
+    background: var(--ink-04);
+    border-color: var(--muted);
+  }
 }
 
 .text-btn:active:not(:disabled) {
@@ -408,9 +448,8 @@ input[type="file"]:hover::file-selector-button {
 }
 
 /* 键盘可达：鼠标用户看不到，Tab 进来才出现 */
-.add-btn:focus-visible,
+.icon-btn:focus-visible,
 .text-btn:focus-visible,
-.menu-btn:focus-visible,
 .menu-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -448,63 +487,99 @@ input[type="file"]:hover::file-selector-button {
 .topbar-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* 10px 而不是更紧：每个键的热区左右各外扩 4px，
+     两个键之间留够 10 才不会互相盖住（盖住的话后画的会抢走重叠区） */
+  gap: 10px;
 }
 
-/* 「＋」：轻量方形键，不再是黑圆钮 —— 手册感里它是个动作，不是主角 */
-.add-btn {
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  line-height: 1;
-  color: var(--text);
-  background: var(--card);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-sm);
-  text-decoration: none;
-  transition: background var(--dur) var(--ease-io),
-    border-color var(--dur) var(--ease-io), transform var(--dur-fast) var(--ease-io);
-}
-
-.add-btn:hover {
-  background: var(--ink-04);
-  border-color: var(--muted);
-}
-
-.add-btn:active {
-  transform: scale(0.95);
-}
-
-/* 顶栏的「⋯」菜单：退出这类低频动作收进来，不常驻抢占顶栏 */
-.menu-wrap {
+/* 顶栏动作键（0.19a 统一成一套）：同一个键壳，靠修饰类分轻重。
+   视觉 32×32、热区 40×40 —— 视觉小热区够，一排键才不会把品牌挤掉 */
+.icon-btn {
   position: relative;
-}
-
-.menu-btn {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  font-size: 16px;
+  font-size: 18px;
   font-family: inherit;
   line-height: 1;
   color: var(--text);
   background: var(--card);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
+  text-decoration: none;
   cursor: pointer;
   transition: background var(--dur) var(--ease-io),
-    border-color var(--dur) var(--ease-io);
+    border-color var(--dur) var(--ease-io), color var(--dur) var(--ease-io),
+    transform var(--dur-fast) var(--ease-io);
 }
 
-.menu-btn:hover {
-  background: var(--ink-04);
-  border-color: var(--muted);
+/* 热区：32 是含边框的 border-box，实际内容区 30 × 30。
+   ::after 的包含块是 padding box，所以 inset -5 才能把热区撑到 40 × 40 */
+.icon-btn::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+}
+
+/* 「＋」：整排里唯一实心的一颗。近黑底白字，第一眼就能找到新增入口 */
+.icon-btn.is-primary {
+  font-size: 20px;
+  color: #ffffff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 筛选生效时的角标。用近黑而不是 --danger：红在这套配色里专指
+   「危险动作 / 出错」，借去表示「有筛选在生效」会把它的含义稀释掉 */
+.icon-btn.has-dot::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  z-index: 1;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg);
+  pointer-events: none;
+}
+
+/* 按钮里的图标走描边不填充（path 是三条横线，靠 stroke 才看得见） */
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+@media (hover: hover) {
+  .icon-btn:hover {
+    background: var(--ink-04);
+    border-color: var(--muted);
+  }
+
+  /* 实心那颗 hover 要加深，不能被上面那条改成浅灰 —— 特异性更高，压得住 */
+  .icon-btn.is-primary:hover {
+    color: #ffffff;
+    background: var(--accent-ink);
+    border-color: var(--accent-ink);
+  }
+}
+
+.icon-btn:active {
+  transform: scale(0.95);
+}
+
+/* 顶栏的「⋯」菜单：退出这类低频动作收进来，不常驻抢占顶栏 */
+.menu-wrap {
+  position: relative;
 }
 
 /* 全站唯一一处阴影：下拉必须浮起来才读得出「在别的层」 */
@@ -536,8 +611,10 @@ input[type="file"]:hover::file-selector-button {
   transition: background var(--dur) var(--ease-io), color var(--dur) var(--ease-io);
 }
 
-.menu-item:hover:not(:disabled) {
-  background: var(--ink-05);
+@media (hover: hover) {
+  .menu-item:hover:not(:disabled) {
+    background: var(--ink-05);
+  }
 }
 
 .menu-item:disabled {
@@ -548,7 +625,7 @@ input[type="file"]:hover::file-selector-button {
 /* ---------- 内容区 ---------- */
 
 /* 列表页：照片全出血，所以整页不留左右内边距 ——
-   需要留白的文字块各自加（`.explore` / `.shot-body`） */
+   需要留白的文字块各自加（`.filter-bar` / `.shot-body`） */
 .feed-wrap {
   max-width: 560px;
   margin: 0 auto;
@@ -556,6 +633,11 @@ input[type="file"]:hover::file-selector-button {
   /* 顶栏是 sticky 的会盖住内容开头，这里补上它的高度 + 一点呼吸
      （读同一个变量，改顶栏不用两处对数字） */
   padding-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 14px);
+}
+
+/* 错误提示是唯一还留在 feed-wrap 直下的文字块，给它自己的留白 */
+.feed-wrap > .error {
+  margin: 0 var(--gutter) 14px;
 }
 
 /* 新增页这种「表单页」的内容区：左右留白由这里统一给 */
@@ -594,9 +676,18 @@ input[type="file"]:hover::file-selector-button {
   list-style: none;
   margin: 0;
   padding: 0;
+  /* 最后一张照片下面留出呼吸，同时避开 iPhone 底部的 home indicator */
+  padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 38px;
+}
+
+/* 「加载更多」（0.19a 起首页分页）：一页 30 条，滚到底再要下一批 */
+.feed-more {
+  display: flex;
+  justify-content: center;
+  margin: 0 var(--gutter) calc(30px + env(safe-area-inset-bottom, 0px));
 }
 
 /* 一条案例：不是「卡片盒子」，是排下来的一张图 + 一段元信息。
@@ -651,6 +742,14 @@ input[type="file"]:hover::file-selector-button {
     transform var(--dur-fast) var(--ease-io), opacity var(--dur) var(--ease-io);
 }
 
+/* 热区：28 + 6 + 6 = 40。它压在照片右上角，误触会弹确认框，
+   所以这一步的必要性比别的按钮更高 */
+.shot-del::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+
 /* hover 只在真有鼠标的设备上生效（触屏上 hover 会「粘住」不消失） */
 @media (hover: hover) {
   .shot-del:hover:not(:disabled) {
@@ -692,10 +791,14 @@ input[type="file"]:hover::file-selector-button {
   font-weight: 500;
   line-height: 1.45;
   letter-spacing: -0.01em;
+  /* 长英文 / URL 会把卡片撑破（照片是 100% 宽，卡片跟着一起横向溢出）。
+     anywhere 比 break-word 更狠：连没有空格的超长串也能断 */
+  overflow-wrap: anywhere;
 }
 
 .shot-note {
   margin: 0;
+  overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.65;
   color: var(--muted);
@@ -740,11 +843,13 @@ input[type="file"]:hover::file-selector-button {
 /* 展开开关：行内文字按钮，比 .text-btn 轻 —— 它长在文字流里，
    白底描边那种「表单按钮」的分量会把它变成第二条主角 */
 .shot-toggle {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
-  padding: 4px 6px;
+  min-height: 34px;
+  padding: 5px 6px;
   font-size: 11px;
   font-family: inherit;
   letter-spacing: 0.04em;
@@ -756,6 +861,13 @@ input[type="file"]:hover::file-selector-button {
   font-variant-numeric: tabular-nums;
   transition: color var(--dur) var(--ease-io),
     background var(--dur) var(--ease-io);
+}
+
+/* 热区：34 + 3 + 3 = 40。0.19b 会把整行做成触发区，这里先把按钮本身够到 40 */
+.shot-toggle::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
 }
 
 @media (hover: hover) {
@@ -792,18 +904,76 @@ input[type="file"]:hover::file-selector-button {
   border-top: 1px solid var(--border);
 }
 
-/* ---------- 探索：分面筛选 ---------- */
+/* ---------- 筛选抽屉（0.19a）----------
+ *
+ * 0.15–0.18 时这块是常驻在 feed 顶部的「探索」区，首屏被它吃掉约 180px，
+ * 打开 App 第一眼看不到照片 —— 而「刷照片」才是首页的主要用途。
+ * 现在收进顶栏下方的抽屉：默认不占位置，要查参考时点「筛选」一步展开。
+ *
+ * 层叠关系要算清楚（三个值是一个整体，动一个要想另外两个）：
+ *   .topbar          z-index 5
+ *   .filter-scrim    z-index 6   ← 从**顶栏下沿**开始，刻意不盖顶栏
+ *   .filter-panel    z-index 7
+ * 遮罩不盖顶栏是有意的：抽屉开着时还能点顶栏那颗「筛选」键把它收回去，
+ * 否则出口只剩遮罩和 Esc 两条。
+ */
 
-.explore {
-  margin: 0 var(--gutter) 22px;
-  padding-bottom: 16px;
+.filter-scrim {
+  position: fixed;
+  top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+  background: var(--scrim);
+}
+
+.filter-panel {
+  position: fixed;
+  top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+  right: 0;
+  left: 0;
+  z-index: 7;
+  max-width: 560px;
+  margin: 0 auto;
+  /* 底部留 56px：面板不能顶到屏幕下沿，否则「下面还有东西」看不出来，
+     也没地方点一下把抽屉收回 */
+  max-height: calc(100dvh - var(--topbar-h) - env(safe-area-inset-top, 0px) - 56px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  /* 滚到尽头别把底下的 feed 一起带着滚 */
+  overscroll-behavior: contain;
+  padding: 14px var(--gutter) 18px;
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
-  animation: rise var(--dur-slow) var(--ease) both;
+  border-radius: 0 0 var(--r-lg) var(--r-lg);
+  animation: drop var(--dur-slow) var(--ease) both;
+}
+
+/* 从顶栏下沿滑下来 8px。和 rise 一个道理：短距离才有「贴上来」的感觉 */
+@keyframes drop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* 头部：标题在左，「清除 / 完成」在右。两个按钮都撑到 --touch-min */
+.filter-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
 }
 
 /* 小节标签：大字距小字号 —— 「手册」感有一半来自这一行 */
-.explore-title {
-  margin: 0 0 14px;
+.filter-title {
+  flex: 1;
+  margin: 0;
   font-size: 11px;
   font-weight: 500;
   color: var(--muted);
@@ -811,10 +981,13 @@ input[type="file"]:hover::file-selector-button {
 }
 
 /* 一组一个维度。组名 / 胶囊复用新增页那套，两页同一套视觉语言 */
-.explore-group + .explore-group {
+.filter-group + .filter-group {
   margin-top: 13px;
 }
 
+/* 组名 / 胶囊：筛选面板和新增页共用的两个类。
+   ⚠️ 名字不带 filter-/create- 前缀是有意的 —— 它们确实同时服务两页，
+   改了会连新增页一起改，这正是想要的 */
 .tag-group-name {
   display: block;
   margin-bottom: 6px;
@@ -829,48 +1002,83 @@ input[type="file"]:hover::file-selector-button {
   gap: 7px;
 }
 
-/* 折叠态的「全部维度」开关 */
-.explore-more {
-  margin-top: 14px;
-  padding: 5px 0;
-  font-size: 13px;
-  font-family: inherit;
+/* 「同一维度只能选一个值」这条规则，界面上没有任何线索能看出来 ——
+   不写出来用户会以为是自己点错了 */
+.filter-note {
+  margin: 16px 0 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.6;
   color: var(--muted);
-  background: none;
-  border: 0;
-  border-bottom: 1px solid var(--border-strong);
-  cursor: pointer;
-  letter-spacing: 0.02em;
-  transition: color var(--dur) var(--ease-io),
-    border-color var(--dur) var(--ease-io);
 }
 
-.explore-more:hover {
-  color: var(--text);
-  border-bottom-color: var(--text);
+.filter-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
 }
 
-.explore-more:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* 筛选态提示。必须显眼到「一眼看出这不是全部」，否则会以为照片丢了 */
-.explore-active {
+/* 筛选生效时 feed 顶部那一行。必须显眼到「一眼看出这不是全部」，
+   否则用户会以为照片丢了。
+   故意不画成带边框的条：那会和顶栏的键、面板里的胶囊连成一片方框 */
+.filter-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 14px 0 0;
+  gap: 12px;
+  margin: 0 var(--gutter) 16px;
   font-size: 13px;
   color: var(--muted);
+}
+
+.filter-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* 提示条里的「清除」：无底无框的纯文字键，靠 min-height 补够热区。
+   加描边会在这条细提示里变成「第二个按钮」，抢掉提示本身的注意力 */
+.filter-clear {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  padding: 0 4px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .filter-clear:hover:not(:disabled) {
+    color: var(--muted);
+  }
+}
+
+.filter-clear:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.filter-clear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* 标签胶囊：矩形浅灰底（工具感），选中转近黑底。
    全站只有一支主色，不引入第二种彩色：照片才是唯一有颜色的东西 */
 .tag-chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* 34 是视觉高度，热区由下面的 ::after 撑到 40。
+     ⚠️ 7px 的行列间距刚好装得下 3 + 3 的外扩，改间距要连这里一起想 */
+  min-height: 34px;
   padding: 5px 10px;
   font-size: 13px;
   font-family: inherit;
@@ -883,6 +1091,13 @@ input[type="file"]:hover::file-selector-button {
   transition: color var(--dur) var(--ease-io),
     background var(--dur) var(--ease-io), border-color var(--dur) var(--ease-io),
     transform var(--dur-fast) var(--ease-io);
+}
+
+/* 热区：padding box 高度约 32，inset -4 正好撑到 40 */
+.tag-chip::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
 }
 
 /* hover 只在真有鼠标的设备上生效 —— 触屏上 hover 会「粘住」不消失 */
@@ -1005,7 +1220,8 @@ input[type="file"]:hover::file-selector-button {
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  /* 10 而不是 8：删除键的热区上下各外扩 4px，间距少于 8 就会互相咬住 */
+  gap: 10px;
 }
 
 /* 每条一块纸白；删除键靠右独立成方块，
@@ -1027,12 +1243,16 @@ input[type="file"]:hover::file-selector-button {
   flex: 1;
 }
 
+/* 删除一条技巧。⚠️ 这里有个坑：热区只能往下/往上扩 4px ——
+   相邻两条之间只有 10px 间距，扩多了就会伸进上一条的区域，
+   点「删这一条」变成删上面那条。所以 32 视觉 + 4 外扩 = 40 是上限 */
 .tip-x {
+  position: relative;
   flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-family: inherit;
   line-height: 1;
   color: var(--muted);
@@ -1044,9 +1264,19 @@ input[type="file"]:hover::file-selector-button {
     border-color var(--dur) var(--ease-io), transform var(--dur-fast) var(--ease-io);
 }
 
-.tip-x:hover:not(:disabled) {
-  color: var(--danger);
-  border-color: var(--danger);
+/* 热区：32 含边框的 border-box，padding box 30 × 30，inset -5 → 40 × 40。
+   相邻两条间距 10px，两颗 -5 的热区刚好贴边，不会互相咬住 */
+.tip-x::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+}
+
+@media (hover: hover) {
+  .tip-x:hover:not(:disabled) {
+    color: var(--danger);
+    border-color: var(--danger);
+  }
 }
 
 .tip-x:active:not(:disabled) {
@@ -1125,8 +1355,10 @@ input[type="file"]:hover::file-selector-button {
   --van-button-primary-border-color: var(--accent);
   --van-button-border-radius: var(--r-sm);
 
-  /* 表单字段：字号对齐正文，内边距交给我们控制 */
-  --van-cell-font-size: 15px;
+  /* 表单字段：字号对齐正文，内边距交给我们控制。
+     ⚠️ 16px 是硬下限，不是审美选择：iOS Safari 在 input 字号 < 16px 时，
+     聚焦会**自动放大整页**，用户得手动缩回去（P0.1）。别再往下调。 */
+  --van-cell-font-size: 16px;
   --van-cell-vertical-padding: 12px;
   --van-cell-horizontal-padding: 12px;
   --van-field-placeholder-text-color: var(--muted);
@@ -1167,6 +1399,9 @@ input[type="file"]:hover::file-selector-button {
   background: transparent;
   border: 0;
   border-radius: 0;
+  /* 兜底：--van-cell-font-size 万一被别处覆盖，这里再钉一次 16px。
+     低于 16px 在 iOS 上聚焦会放大整页（P0.1） */
+  font-size: 16px;
 }
 
 .van-field .van-field__control:focus {
@@ -1194,9 +1429,11 @@ input[type="file"]:hover::file-selector-button {
     background var(--dur) var(--ease-io);
 }
 
-.van-uploader__upload:hover {
-  background: var(--ink-04);
-  border-color: var(--muted);
+@media (hover: hover) {
+  .van-uploader__upload:hover {
+    background: var(--ink-04);
+    border-color: var(--muted);
+  }
 }
 
 /* Vant 的图片预览遮罩给个不透明的深底，照片在白底上不会发灰 */

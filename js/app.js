@@ -1,18 +1,26 @@
 /**
- * 首页（照片列表）逻辑 —— 0.18 版（分面筛选 + 顶栏菜单 + 探索区折叠）
+ * 首页（照片列表）逻辑 —— 0.19a 版（筛选抽屉 + 分页 + 顶栏统一动作键）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
- *   2. 取当前用户的照片（RLS 只会返回本人的行，前端不传也不该传归属条件）
+ *   2. 取当前用户最近一页照片（RLS 只会返回本人的行，前端不传也不该传归属条件）
  *   3. 私有桶拿不到直链，渲染前批量换成临时访问链接
- *   4. 取一次档位用量，给「探索」区分组做分面筛选
+ *   4. 取一次档位用量，给筛选抽屉做分面
  *   5. 卡片右上角可删除：二次确认后先删行、再删桶里的文件
  *   6. 点档位筛选（维度内单选、跨维度叠加），再点一次取消
  *   7. 卡片默认只露一行档位值 + 技巧条数，点日期那行原地展开详情（0.14）
- *   8. 顶栏「⋯」收「退出」；探索区默认只展开两组维度（0.17）
+ *   8. 顶栏三颗键：＋（新增）、筛选（抽屉）、⋯（退出）
  *
  * 关于「刷新时闪一下」：沿用 0.1 定下的约定 —— 先把要显示的内容全部确定好，
  * 再 mount Vue。所以照片列表、临时链接、档位用量都在 mount 之前就备齐了。
+ *
+ * 0.19a 的两处结构变化：
+ *   - **筛选从常驻区改成抽屉**。0.15–0.18 那块「探索」占掉首屏约 180px，
+ *     首页第一眼看不到照片。现在默认不占位置（见 index.html 的 .filter-panel）。
+ *     抽屉面板可滚，所以 0.17 那套「只露两组维度」的折叠去掉了 ——
+ *     折叠是给高度受限的常驻区用的，装在可滚的抽屉里只会让人多点一次。
+ *   - **首屏只取一页（30 条）**。以前一次把全部照片连同全部临时链接拉下来，
+ *     几十张之后手机上会瞬间并发几十个请求。现在「加载更多」逐页取（P0.6）。
  *
  * 筛选为什么一律走服务端查询，而不是在前端过滤已取回的数组：
  *   筛过一次之后手上的列表就不是全集了（只有命中的那几张），
@@ -41,9 +49,11 @@
   // 页面里不另抄一份维度表
   var Facets = window.P5Facets || {};
 
-  // 探索区折叠时露出几组维度（0.17）。两组够看出「这里能筛什么」，
-  // 又不至于把第一张照片挤出首屏
-  var EXPLORE_FOLD = 2;
+  /* 一页取多少条（0.19a 起）。
+     30 是「一屏半到两屏」的量：够刷一会儿，又不至于让首屏等一堆签名请求。
+     实际查询时会多要一条（PAGE_SIZE + 1）来判断后面还有没有 —— 这样不用再发
+     一次 count 查询，代价只是多取回一行。 */
+  var PAGE_SIZE = 30;
 
   // Vant 的函数式组件挂在全局 vant 上（不是 Vue 插件的一部分）
   var vantLib = window.vant || {};
@@ -62,12 +72,57 @@
     return d.getFullYear() + "." + pad(d.getMonth() + 1) + "." + pad(d.getDate());
   }
 
+  /** 一行数据库记录 → 渲染用的对象。字段名和模板一一对应，不在这里做显示判断 */
+  function toItem(r, urlMap) {
+    var tips = r.ai_tips || [];
+
+    // 档位一行只显值：库里存的是「镜头:中长焦」，decode 之后只取值。
+    // 「不确定」不显示 —— 它是 AI 拿不准时的合法出口，但没有参考价值，
+    // 一行档位要留给真信息（展开区同规则，两处同一个数组）。
+    var facetValues = P5Facets.fromTags(r.tags || [])
+      .map(function (d) {
+        return d.value === P5Facets.UNCERTAIN ? "" : d.value;
+      })
+      .filter(Boolean);
+
+    return {
+      id: r.id,
+      // 删除时要连桶里的文件一起删，所以路径必须留着
+      storagePath: r.storage_path,
+      title: r.title || "",
+      note: r.note || "",
+      facetValues: facetValues,
+      tips: tips,
+      // 没有描述、档位、技巧任何一样时，展开区是空的 —— 不渲染那个按钮
+      expandable: !!(r.note || facetValues.length || tips.length),
+      open: false,
+      date: fmtDate(r.created_at),
+      url: urlMap[r.storage_path] || "",
+      // 图片解码完置 true，CSS 靠它把照片淡出来
+      loaded: false
+    };
+  }
+
   /**
-   * 取一批照片，并换成可以进 <img src> 的临时链接。
-   * tags 是选中的档位数组（空数组 = 不筛），AND 语义由服务端 contains 保证。
+   * 取一页照片，并换成可以进 <img src> 的临时链接。
+   *
+   * @param tags   选中的档位数组（空数组 = 不筛），AND 语义由服务端 contains 保证
+   * @param offset 已经取回过的条数 —— 刻意不是「页码」：删掉一条时直接减 1
+   *               就对得上，页码还得反算，容易差一位
+   * @returns { items, hasMore }
+   *
+   * hasMore 用「多要一条」判断：要 PAGE_SIZE + 1 条，真回来这么多就说明后面还有，
+   * 把多的那条丢掉即可。比再发一次 count 查询少一个来回。
    */
-  async function loadPhotos(tags) {
-    var rows = await P5.listPhotos(tags && tags.length ? { tags: tags } : null);
+  async function loadPage(tags, offset) {
+    var rows = await P5.listPhotos({
+      tags: tags && tags.length ? tags : null,
+      limit: PAGE_SIZE + 1,
+      offset: offset || 0
+    });
+
+    var hasMore = rows.length > PAGE_SIZE;
+    if (hasMore) rows = rows.slice(0, PAGE_SIZE);
 
     var paths = rows
       .map(function (r) {
@@ -75,38 +130,16 @@
       })
       .filter(Boolean);
 
-    // 私有桶不发直链，必须先换临时访问链接才能进 <img src>
+    // 私有桶不发直链，必须先换临时访问链接才能进 <img src>。
+    // 只签这一页的 —— 一次签几百个 URL，手机上要白等很久
     var urlMap = paths.length ? await P5.signPhotoUrls(paths) : {};
 
-    return rows.map(function (r) {
-      var tips = r.ai_tips || [];
-
-      // 档位一行只显值：库里存的是「镜头:中长焦」，decode 之后只取值。
-      // 「不确定」不显示 —— 它是 AI 拿不准时的合法出口，但没有参考价值，
-      // 一行档位要留给真信息（展开区同规则，两处同一个数组）。
-      var facetValues = P5Facets.fromTags(r.tags || [])
-        .map(function (d) {
-          return d.value === P5Facets.UNCERTAIN ? "" : d.value;
-        })
-        .filter(Boolean);
-
-      return {
-        id: r.id,
-        // 删除时要连桶里的文件一起删，所以路径必须留着
-        storagePath: r.storage_path,
-        title: r.title || "",
-        note: r.note || "",
-        facetValues: facetValues,
-        tips: tips,
-        // 没有描述、档位、技巧任何一样时，展开区是空的 —— 不渲染那个按钮
-        expandable: !!(r.note || facetValues.length || tips.length),
-        open: false,
-        date: fmtDate(r.created_at),
-        url: urlMap[r.storage_path] || "",
-        // 图片解码完置 true，CSS 靠它把照片淡出来
-        loaded: false
-      };
-    });
+    return {
+      items: rows.map(function (r) {
+        return toItem(r, urlMap);
+      }),
+      hasMore: hasMore
+    };
   }
 
   async function bootstrap() {
@@ -126,11 +159,14 @@
     }
 
     var photos = [];
+    var more = false;
     var tagCounts = [];
 
     if (!error) {
       try {
-        photos = await loadPhotos([]);
+        var first = await loadPage([], 0);
+        photos = first.items;
+        more = first.hasMore;
         tagCounts = await P5.listTagCounts();
       } catch (e) {
         error = e.message || String(e);
@@ -148,6 +184,11 @@
         var activeTags = ref([]);
         var busy = ref(false);
         var err = ref(error);
+
+        // 分页状态（0.19a）。offset 是「已经从服务端取回过的条数」，
+        // 不是页码 —— 删掉一条时减 1 就对得上，页码还得反算
+        var offset = ref(photos.length);
+        var hasMore = ref(more);
 
         // 顶栏滚动阴影（class 挂在 .topbar 上，样式在 style.css）。
         // passive 监听 + 只在跨过阈值时赋值，避免每滚一帧都触发一次渲染
@@ -169,21 +210,41 @@
           menuOpen.value = false;
         }
 
+        // 筛选抽屉（0.19a）
+        var filterOpen = ref(false);
+
+        function closeFilter() {
+          filterOpen.value = false;
+        }
+
+        function toggleFilter() {
+          filterOpen.value = !filterOpen.value;
+          // 两个浮层不能同时开着：菜单从顶栏往下挂，正好压在抽屉上
+          if (filterOpen.value) closeMenu();
+        }
+
+        /** 「⋯」同理，打开菜单时把抽屉收掉 */
+        function toggleMenu() {
+          menuOpen.value = !menuOpen.value;
+          if (menuOpen.value) closeFilter();
+        }
+
         function onDocClick(e) {
           if (!menuOpen.value) return;
           if (e.target.closest && e.target.closest(".menu-wrap")) return;
           closeMenu();
         }
 
+        // Esc 两个浮层一起收 —— 用户按 Esc 就是想「回到干净状态」，
+        // 不该猜他在想关哪一个
         function onKeydown(e) {
-          if (e.key === "Escape") closeMenu();
+          if (e.key !== "Escape") return;
+          closeMenu();
+          closeFilter();
         }
 
         document.addEventListener("click", onDocClick);
         document.addEventListener("keydown", onKeydown);
-
-        // 探索区折叠状态。默认收起（只露 EXPLORE_FOLD 组）
-        var exploreOpen = ref(false);
 
         async function logout() {
           if (busy.value) return;
@@ -296,18 +357,6 @@
           return activeTags.value.indexOf(tag) >= 0;
         }
 
-        /**
-         * 实际渲染的维度组（0.17 折叠）。
-         *
-         * **有筛选项在生效时一律全展开** —— 否则选中项可能落在折起来的那几组里，
-         * 界面上没有地方能取消它，只能点「清除」把全部筛掉。
-         */
-        var visibleGroups = computed(function () {
-          var all = facetGroups.value;
-          if (exploreOpen.value || activeTags.value.length) return all;
-          return all.slice(0, EXPLORE_FOLD);
-        });
-
         /** 筛选态那行的文字：只显示值，和卡片一个口径 */
         var activeText = computed(function () {
           return activeTags.value
@@ -323,15 +372,44 @@
          *
          * ⚠️ activeTags 在查询**成功之后**才改：查询失败时界面应该保持原样，
          * 不能出现「胶囊高亮了但列表还是上一批」这种自相矛盾的状态。
+         *
+         * 改筛选 = 换一个结果集，所以游标和「还有没有下一页」都要跟着重来，
+         * 不能把上一批的 offset 带过来。
          */
         async function applyFilter(next) {
           busy.value = true;
           err.value = "";
 
           try {
-            var rows = await loadPhotos(next);
-            list.value = rows;
+            var page = await loadPage(next, 0);
+            list.value = page.items;
+            offset.value = page.items.length;
+            hasMore.value = page.hasMore;
             activeTags.value = next;
+          } catch (e) {
+            err.value = e.message || String(e);
+          } finally {
+            busy.value = false;
+          }
+        }
+
+        /**
+         * 再取一页，追加到列表末尾（0.19a）。
+         *
+         * 追加而不是替换：用户已经滚到这儿了，替换会把位置弹回顶部。
+         * 签名也只走这一页的新图片（见 loadPage）。
+         */
+        async function loadMore() {
+          if (busy.value || !hasMore.value) return;
+
+          busy.value = true;
+          err.value = "";
+
+          try {
+            var page = await loadPage(activeTags.value, offset.value);
+            list.value = list.value.concat(page.items);
+            offset.value += page.items.length;
+            hasMore.value = page.hasMore;
           } catch (e) {
             err.value = e.message || String(e);
           } finally {
@@ -415,8 +493,12 @@
               return x.id !== p.id;
             });
 
+            // 服务端那边少了一条，游标跟着退一格 —— 不退的话下一次「加载更多」
+            // 会从新位置的下一条开始，刚补上来的那张就被跳过去了
+            if (offset.value > 0) offset.value -= 1;
+
             // 档位用量跟着变了，重取一次。不取的话，删掉最后一张中长焦的照片后，
-            // 探索区那组里还挂着「1」，点进去却是空的。
+            // 筛选面板那组里还挂着「1」，点进去却是空的。
             try {
               counts.value = await P5.listTagCounts();
             } catch (ce) {
@@ -433,18 +515,21 @@
         return {
           photos: list,
           facetGroups: facetGroups,
-          visibleGroups: visibleGroups,
-          exploreFold: EXPLORE_FOLD,
-          exploreOpen: exploreOpen,
+          hasMore: hasMore,
           activeTags: activeTags,
           activeText: activeText,
           isActive: isActive,
           menuOpen: menuOpen,
+          filterOpen: filterOpen,
           busy: busy,
           error: err,
           scrolled: scrolled,
           logout: logout,
           preview: preview,
+          toggleMenu: toggleMenu,
+          toggleFilter: toggleFilter,
+          closeFilter: closeFilter,
+          loadMore: loadMore,
           filterBy: filterBy,
           clearFilter: clearFilter,
           toggle: toggle,

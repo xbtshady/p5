@@ -23,17 +23,30 @@
     <header class="topbar" :class="{ 'is-scrolled': scrolled }">
       <h1 class="topbar-brand">P5</h1>
       <nav class="topbar-actions">
-        <a class="add-btn" href="create.html" aria-label="添加照片">＋</a>
+        <!-- 0.19a：三个动作按使用频率排 —— 新增最常用（实心近黑、最显眼），
+             筛选次之，退出这类低频动作收进「⋯」菜单 -->
+        <a class="icon-btn is-primary" href="create.html" aria-label="添加照片">＋</a>
 
-        <!-- 0.17 顶栏减负：「退出」是低频动作，收进菜单，不常驻抢位置。
-             点空白处 / 按 Esc 收起（监听在 js/app.js） -->
+        <button
+          class="icon-btn"
+          type="button"
+          aria-label="筛选"
+          :aria-expanded="filterOpen ? 'true' : 'false'"
+          :class="{ 'has-dot': activeTags.length }"
+          @click="toggleFilter"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+            <path d="M2 3.5h12M4.5 8h7M6.5 12.5h3" />
+          </svg>
+        </button>
+
         <div class="menu-wrap">
           <button
-            class="menu-btn"
+            class="icon-btn"
             type="button"
             aria-label="更多"
             :aria-expanded="menuOpen ? 'true' : 'false'"
-            @click="menuOpen = !menuOpen"
+            @click="toggleMenu"
           >⋯</button>
           <div class="menu-panel" v-if="menuOpen">
             <button class="menu-item" type="button" :disabled="busy" @click="logout">
@@ -44,22 +57,34 @@
       </nav>
     </header>
 
-    <main class="feed-wrap">
-      <p v-if="error" class="error">{{ error }}</p>
+    <!-- 筛选抽屉（0.19a）。以前是常驻在 feed 顶部的「探索」区，首屏被它吃掉
+         约 180px —— 打开 App 第一眼看到的不是照片。挪到这里之后默认不占位置，
+         要查参考（「想练中长焦的逆光」）时点顶栏那颗「筛选」一步展开。
+         ⚠️ 遮罩只盖顶栏以下，所以抽屉开着时还能点「筛选」键收回它 -->
+    <div v-if="filterOpen">
+      <div class="filter-scrim" @click="closeFilter"></div>
 
-      <!-- 探索：按维度分组的分面筛选（0.15）。
-           这是「以后拍照前查参考」的主要入口 —— 想练中长焦就点「中长焦」，
-           再叠一个「逆光」就是中长焦的逆光案例，比按时间往下翻有效得多。
-           维度内单选（点同维度的新值是替换，再点一次是取消），跨维度叠加。
+      <section class="filter-panel" role="dialog" aria-label="按档位筛选">
+        <header class="filter-head">
+          <h2 class="filter-title">筛选</h2>
+          <button
+            v-if="activeTags.length"
+            class="text-btn is-tap"
+            type="button"
+            :disabled="busy"
+            @click="clearFilter"
+          >清除</button>
+          <button class="text-btn is-tap" type="button" @click="closeFilter">完成</button>
+        </header>
 
-           0.17：默认只展开前两组维度，否则这块面板会把照片挤出首屏；
-           有筛选项在生效时自动全展开（不然选中的那个可能藏在折起来的部分里，取消不掉） -->
-      <section class="explore" v-if="facetGroups.length || activeTags.length">
-        <h2 class="explore-title">探索</h2>
+        <p class="filter-hint" v-if="!facetGroups.length">
+          还没有可以筛选的档位 —— 先给照片标上档位，这里就会出现分面。
+        </p>
 
-        <!-- 一组一个维度。组名 / 胶囊复用新增页的 .tag-group-name / .tag-row / .tag-chip：
-             同一套视觉语言，两页看起来是一个系统 -->
-        <div class="explore-group" v-for="g in visibleGroups" :key="g.name">
+        <!-- 一组一个维度。组名 / 胶囊复用新增页那套，两页同一套视觉语言。
+             面板里不再折叠维度（0.17 的「只露两组」是给常驻区用的：
+             常驻区要控制高度，抽屉本身可滚，折叠只会让人多点一次） -->
+        <div class="filter-group" v-for="g in facetGroups" :key="g.name">
           <span class="tag-group-name">{{ g.name }}</span>
           <div class="tag-row">
             <button
@@ -75,23 +100,25 @@
           </div>
         </div>
 
-        <button
-          v-if="facetGroups.length > exploreFold"
-          type="button"
-          class="explore-more"
-          :aria-expanded="exploreOpen ? 'true' : 'false'"
-          @click="exploreOpen = !exploreOpen"
-        >{{ exploreOpen ? '收起' : '全部 ' + facetGroups.length + ' 组维度' }}</button>
-
-        <!-- 筛选态要能一眼看出来「现在不是全部」，否则会以为照片丢了。
-             单项取消 = 再点那个已高亮的胶囊；这行只负责一眼可见 + 全部清除 -->
-        <p class="explore-active" v-if="activeTags.length">
-          <span>只看 {{ activeText }}</span>
-          <button class="text-btn" type="button" :disabled="busy" @click="clearFilter">
-            清除
-          </button>
+        <p class="filter-note" v-if="facetGroups.length">
+          同一维度只能选一个值，跨维度叠加（选「中长焦」再选「逆光」= 两者都满足）。
+          再点一次已选中的项即可取消。
         </p>
       </section>
+    </div>
+
+    <main class="feed-wrap">
+      <p v-if="error" class="error">{{ error }}</p>
+
+      <!-- 筛选生效时的提示条。单点取消 = 再点那个已高亮的胶囊，
+           这一行只负责「一眼看出这不是全部」 + 一键全清 ——
+           缺了它，用户会以为照片丢了 -->
+      <p class="filter-bar" v-if="activeTags.length">
+        <span class="filter-bar-text">只看 {{ activeText }}</span>
+        <button class="filter-clear" type="button" :disabled="busy" @click="clearFilter">
+          清除
+        </button>
+      </p>
 
       <p v-if="!error && !photos.length" class="empty">
         {{ activeTags.length ? '这个筛选下还没有照片。' : '还没有照片。点右上角 ＋ 记下第一张。' }}
@@ -169,6 +196,14 @@
           </div>
         </li>
       </ul>
+
+      <!-- 分页（0.19a）：一页 30 条。以前是一次把全部照片和临时链接都拉下来，
+           照片攒到几十张后手机上会瞬间发起几十个请求（P0.6） -->
+      <div class="feed-more" v-if="photos.length && hasMore">
+        <button class="text-btn is-tap" type="button" :disabled="busy" @click="loadMore">
+          {{ busy ? '载入中…' : '加载更多' }}
+        </button>
+      </div>
     </main>
   </div>
 
