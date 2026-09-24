@@ -1,19 +1,27 @@
 /**
- * 新增照片页逻辑 —— 0.19c 版（折叠分组 + 单选维度弹层 + 底部保存条）
+ * 新增照片页逻辑 —— 0.19d 版（AI 闭环合成一条流 + 单选维度就地展开）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
  *   2. 选图 → 前端压缩（长边 1600px、WebP）→ 缩略图 + 体积对照
- *   3. AI 闭环：生成提示词 → 复制 → 连照片一起发给外部 AI → 把它回的 JSON 粘回来
- *      → 档位和技巧自动填好
+ *   3. AI 闭环：生成提示词并复制 → 连照片一起发给外部 AI → 把它回的 JSON 粘回来
+ *      → 粘上就自动填好档位和技巧
  *   4. 扫一眼确认（不对的就点掉）→ 提交 → 上传 → 落库 → 回列表
  *
- * 0.19c 相对 0.13 的结构变化（REDESIGN §3.3）：
+ * 0.19c 的结构（REDESIGN §3.3）：
  *   - 页面拆成三个可折叠分组：基本信息（默认展开）/ 档位 / AI 技巧（都默认折叠）
- *   - 5 个单选维度不再平铺胶囊，改成「一行一个 + 底部弹层选」；
- *     多选维度（姿势）和 AI 追加维度仍是胶囊 —— 判据直接用 P5Facets.isMulti，
+ *   - 多选维度（姿势）和 AI 追加维度是胶囊 —— 判据直接用 P5Facets.isMulti，
  *     别在这里另写一份「哪几个是单选」的名单（改字典时两边会不一致）
  *   - 保存按钮移到底部固定条（在 HTML 里，这里只管 busy / 禁用态）
+ *
+ * 0.19d 的两处交互精简（起因是「点得太多了」）：
+ *   - AI 那段从「生成提示词 / 粘贴回填 / 解析并填入」三颗键收成一颗主键：
+ *     点一次 = 复制 + 露出粘贴框，粘贴由 onPaste 直接接管并回填。
+ *     提示词只读框默认不展开 —— 那段文字是要复制的，不是要读的
+ *   - 5 个单选维度从「点行 → 底部选择器 → 点确认」（3 次触碰）改成
+ *     「点行 → 点值」（2 次），展开在行下面，遮罩不再挡着维度名和已选值。
+ *     代价是没了 picker 的「不填」出口，改由「再点一次选中的值 = 取消」承担
+ *     （P5Facets.toggle 本来就是这语义，和姿势胶囊、首页筛选一致）
  *
  * 三条硬约定：
  *   - 上传失败绝不落库。宁可报错让用户重试，也不要留下一条指向不存在文件的记录。
@@ -165,9 +173,12 @@
         /* ---- AI 闭环的状态（0.13） ---- */
         var promptText = ref("");   // 生成出来的提示词，放只读框里显示（复制失败时手动抄）
         var promptOpen = ref(false);
+        // 生成过一次之后主按钮换成「重新复制提示词」（0.19d）：这颗键是幂等的，
+        // 文案跟着状态走，人才知道再点一次不会出事
+        var promptDone = ref(false);
         var replyText = ref("");    // 用户粘进来的 AI 回复原文
         var replyOpen = ref(false);
-        var replyBox = ref(null);   // 粘贴框，展开后自动聚焦
+        var replyBox = ref(null);   // 粘贴框，解析失败时把光标放回去让人改
         var tips = ref([]);         // AI 给的技巧，回填后显示、可逐条删
         var whyText = ref("");      // AI 每条判断的依据，拼成一行给人工确认用
         var feedback = ref("");     // 灰字反馈（已复制 / 填了几个档位）
@@ -182,92 +193,38 @@
           open.value[key] = !open.value[key];
         }
 
-        /* ---- 单选维度的底部选择器（0.19c） ---- */
+        /* ---- 单选维度的就地展开（0.19d） ---- */
 
         /**
-         * 「不填」在 picker 里的值。
+         * 展开中的那一行（手风琴：同时只开一个）。
          *
-         * 不用空串：Vant 的 picker 靠 `option.value === value` 找初始选中项，
-         * 空串容易被当成「没传值」，于是沿用上一次那一列的选中位置 ——
-         * 表现就是「打开一个没填过的维度，游标却停在别处」。
-         * 用一个正常输入永远造不出来的哨兵串，匹配就是确定的。
-         * 同时 onPickConfirm 也把空串当清空处理，两条路都兜住。
+         * 为什么不是各开各的：核对时本来就是一次看一个维度，而且这样一来
+         * 「展开态」的页面高度上限就固定成一行 —— 改五个维度也不会越拉越长。
          */
-        var NONE = "\u0000";
+        var expandedFacet = ref("");
 
-        var pickerOpen = ref(false);
-        var pickerName = ref("");
-        // picker 的选中值，永远是长度 1 的数组（单列）
-        var pickerValue = ref([NONE]);
-
-        var pickerTitle = computed(function () {
-          return pickerName.value + "（选一个）";
-        });
-
-        /**
-         * 列 = 「不填」+ 这一维度所有可选值。
-         * 值的来源是 chipValues，**不是 g.values** —— AI 自己定的值（不在候选里的
-         * loose 值）必须也出现在列里，否则那个值就变成「选上了却看不见、也换不掉」，
-         * 而它照样会被 toTags 写进库。带圆点规则在 0.12 就定下来了，这里保持一致。
-         */
-        var pickerColumns = computed(function () {
-          var g = groupByName(pickerName.value);
-          var cols = [{ text: "不填", value: NONE }];
-
-          if (!g) return cols;
-
-          chipValues(g).forEach(function (v) {
-            cols.push({ text: isLoose(g, v) ? v + "（AI 给的）" : v, value: v });
-          });
-
-          return cols;
-        });
-
-        /** 当前维度的定义（来自界面分组，不是字典 —— 追加维度也在里面） */
-        function groupByName(name) {
-          var all = facetGroups.value;
-
-          for (var i = 0; i < all.length; i++) {
-            if (all[i].name === name) return all[i];
-          }
-
-          return null;
+        function toggleFacet(name) {
+          if (busy.value) return;
+          expandedFacet.value = expandedFacet.value === name ? "" : name;
         }
 
-        /** 打开选择器，并把当前值设为初始选中项 */
-        function openPicker(name) {
+        /**
+         * 点展开区里的一个值。
+         *
+         * 选中后**收起这一行**：动作到此闭环（展开 → 点 → 收），反馈也没丢 ——
+         * 收起后上面那一行的值会当场变成刚选的。
+         * 取消（点已选中的值）时反过来留着展开：人通常是要接着换个别的值。
+         *
+         * 单选维度点新值会顶掉旧值、再点取消，规则全在 P5Facets.toggle，
+         * 这里不重复一遍 —— 重复了迟早两边不一致。
+         */
+        function pickFacet(name, value) {
           if (busy.value) return;
 
-          pickerName.value = name;
-          pickerValue.value = [pickedValue(name) || NONE];
-          pickerOpen.value = true;
-        }
-
-        /**
-         * 确认选择。
-         *
-         * 语义是「设置」而不是「切换」：先把该维度的值全清掉，再放新的。
-         * 所以清空只有「不填」这一条路 —— picker 里选同一个值再确认不会变成取消，
-         * 那太容易误伤（用户想保留，结果点掉了）。
-         *
-         * 加新值仍然走 P5F.toggle（在清干净的基础上），
-         * 让单选 / 多选、合法值的规则始终只有 facets.js 一份。
-         */
-        function onPickConfirm(e) {
-          var vals = (e && e.selectedValues) || pickerValue.value || [];
-          var raw = vals.length ? String(vals[0]) : "";
-
-          setFacet(pickerName.value, raw === NONE || raw === "" ? "" : raw);
-          pickerOpen.value = false;
-        }
-
-        function setFacet(name, value) {
-          var next = facets.value.filter(function (f) {
-            return !f || f.name !== name;
-          });
-
-          facets.value = value ? P5F.toggle(next, name, value) : next;
+          var wasOn = P5F.hasFacet(facets.value, name, value);
+          facets.value = P5F.toggle(facets.value, name, value);
           err.value = "";
+          if (!wasOn) expandedFacet.value = "";
         }
 
         /**
@@ -361,13 +318,8 @@
           err.value = "";
           feedback.value = "";
 
-          if (promptOpen.value) {
-            promptOpen.value = false;
-            return;
-          }
-
           promptText.value = P5F.buildPrompt(poolTags);
-          promptOpen.value = true;
+          promptDone.value = true;
 
           var copied = false;
           try {
@@ -379,27 +331,50 @@
             console.warn("[P5] 复制失败:", e);
           }
 
+          // 提示词框只在「没抄到」的时候自动展开 —— 那一刻手抄是唯一的出路。
+          // 复制成功就不展开：这段文字占 6 行，而它本来也不是给人读的
+          promptOpen.value = !copied;
+
+          // 露出粘贴框，人从 AI 那边切回来就能直接粘。
+          // ⚠️ 不聚焦：这会儿人是要去切 app 的，弹键盘只会挡住正要发出去的照片
+          replyOpen.value = true;
+
           feedback.value = copied
-            ? "已复制。把提示词和照片一起发给能看图的 AI，再把它回的 JSON 粘到下面。"
-            : "没能自动复制，长按上面框里的文字手动复制。";
+            ? "提示词已复制。和照片一起发给能看图的 AI，再把它回的 JSON 粘到下面 —— 粘上就自动填。"
+            : "没能自动复制，上面展开的框里就是提示词，长按手动复制，再把它回的 JSON 粘到下面。";
+        }
+
+        /** 手动展开 / 收起提示词框（它默认收着，这是「我自己想核对一遍」的入口） */
+        function togglePrompt() {
+          if (busy.value) return;
+          promptOpen.value = !promptOpen.value;
         }
 
         /**
-         * 展开 / 收起粘贴区，展开后自动聚焦（省一次点击）。
+         * 粘贴即回填（0.19d）。
          *
-         * 为什么不去读剪贴板（navigator.clipboard.readText）：各端权限行为不一致，
-         * 微信内置浏览器里基本拿不到；读失败还得再教一次怎么手动粘 ——
-         * 不如一开始就让人自己粘，行为可预期。
+         * 原来这条路是「点粘贴回填 → 点框 → 粘 → 点解析并填入」，四次触碰才完成
+         * 一个动作。paste 事件里能直接拿到剪贴板文本，所以粘完就能填。
+         *
+         * 拿不到 clipboardData 就 return，让浏览器走默认粘贴（v-model 照样更新）——
+         * 下面那颗「没自动填上就点这里」是给这条降级路径留的。
+         * 读不到剪贴板在各端是常态而不是异常（微信内置浏览器基本拿不到），
+         * 别把兜底那颗键当死代码删掉。
+         *
+         * 为什么不干脆监视输入自动解析：解析失败要报错，而「边打字边报错」比
+         * 多点一次烦人得多。粘贴是一次明确的完成动作，只认它。
          */
-        function toggleReply() {
-          if (busy.value) return;
+        function onPaste(e) {
+          var dt = e.clipboardData || window.clipboardData;
+          var text = dt && dt.getData ? dt.getData("text") : "";
 
-          replyOpen.value = !replyOpen.value;
-          if (!replyOpen.value) return;
+          if (!text || !text.trim()) return;
 
-          nextTick(function () {
-            if (replyBox.value && replyBox.value.focus) replyBox.value.focus();
-          });
+          // 手动接管：preventDefault 之后浏览器不会再触发 input，
+          // 值由这里写一次，免得同一段文本进来两遍
+          e.preventDefault();
+          replyText.value = text;
+          applyReply();
         }
 
         function removeTip(i) {
@@ -429,6 +404,11 @@
 
           if (!res.ok) {
             err.value = res.error;
+            // 把光标放回框里，让人就地改那一处再试（不用再点一次框）。
+            // 原文此刻仍留在框里（下面不收起），所以只报错、不丢内容
+            nextTick(function () {
+              if (replyBox.value && replyBox.value.focus) replyBox.value.focus();
+            });
             return;
           }
 
@@ -579,8 +559,8 @@
         var facetHint = computed(function () {
           var n = facets.value.length;
           return n
-            ? "已选 " + n + " 项，再点一下取消；拿不准的空着就行"
-            : "拿不准的空着就行，不必每一项都填";
+            ? "已选 " + n + " 项，再点一下选中的值就是取消；拿不准的空着就行"
+            : "点一行展开候选值。拿不准的空着就行，不必每一项都填";
         });
 
         /* ---- 折叠组头部的摘要（0.19c） ----
@@ -655,7 +635,7 @@
           note: note,
           facets: facets,
           facetHint: facetHint,
-          /* ---- 0.19c：折叠分组 + 单选维度弹层 ----
+          /* ---- 0.19c：折叠分组 ---- 0.19d：单选维度就地展开 ----
            * facetValue 就是内部的 pickedValue：模板里叫 valueOf 会和
            * Object.prototype.valueOf 撞脸（这次没出事，但没人愿意下次再赌一把） */
           open: open,
@@ -666,18 +646,16 @@
           basicSummary: basicSummary,
           facetSummary: facetSummary,
           tipsSummary: tipsSummary,
-          pickerOpen: pickerOpen,
-          pickerTitle: pickerTitle,
-          pickerColumns: pickerColumns,
-          pickerValue: pickerValue,
-          openPicker: openPicker,
-          onPickConfirm: onPickConfirm,
+          expandedFacet: expandedFacet,
+          toggleFacet: toggleFacet,
+          pickFacet: pickFacet,
           chipValues: chipValues,
           isLoose: isLoose,
           isOn: isOn,
           toggle: toggle,
           promptText: promptText,
           promptOpen: promptOpen,
+          promptDone: promptDone,
           replyText: replyText,
           replyOpen: replyOpen,
           replyBox: replyBox,
@@ -685,7 +663,8 @@
           whyText: whyText,
           feedback: feedback,
           genPrompt: genPrompt,
-          toggleReply: toggleReply,
+          togglePrompt: togglePrompt,
+          onPaste: onPaste,
           applyReply: applyReply,
           removeTip: removeTip,
           busy: busy,

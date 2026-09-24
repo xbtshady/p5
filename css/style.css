@@ -1227,20 +1227,64 @@ input[type="file"]::file-selector-button {
 
 /* ---------- 新增页：AI 闭环 ---------- */
 
-/* 两个动作并排一行。.btn 本身是满宽 block，这里覆盖成等分 ——
-   它们是「同一件事的两端」，并排才看得出是一组 */
+/* AI 那段的主行动键（0.19d 只剩这一颗）。
+   .btn 本身是满宽 block，这里只补热区下限；不再往下压字号 ——
+   它是这一段唯一的入口，不是两颗并列的次要动作 */
 .ai-bar {
   display: flex;
-  gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .ai-bar .btn {
   flex: 1;
   width: auto;
   min-height: var(--touch-min);
-  padding: 10px 12px;
+}
+
+/* 提示词框上面那一行（只有「看一眼提示词」一颗键）。
+   v-if 挂在这层上：没生成过提示词时整行不存在，不留空隙 */
+.ai-sub {
+  margin-bottom: 6px;
+}
+
+/* 「看一眼提示词 / 没自动填上就点这里」这类次要入口：无底无框，
+   只靠 min-height 撑够热区 —— 加描边它就会变成「第二个按钮」，
+   和主键抢注意力。
+   （和首页 .filter-clear 是同一种东西，但那边绑在筛选条上、带 flex: 0 0 auto
+   之类的约束，合并反而要多写几行覆盖，所以留着两份） */
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  /* flex 容器里默认 stretch，会被拉成满宽 —— 那热区就大到容易误触 */
+  align-self: flex-start;
+  min-height: var(--touch-min);
+  /* 负左边距抵消内边距：文字左边缘和上面的按钮、标签对齐 */
+  margin-left: -4px;
+  padding: 0 4px;
   font-size: 13px;
+  font-family: inherit;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+@media (hover: hover) {
+  .link-btn:hover:not(:disabled) {
+    color: var(--text);
+    text-decoration: underline;
+  }
+}
+
+.link-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.link-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* 提示词 / 粘贴框。
@@ -1369,7 +1413,7 @@ input[type="file"]::file-selector-button {
   color: var(--muted);
 }
 
-/* ---------- 新增页：单选维度的一行（0.19c） ---------- */
+/* ---------- 新增页：单选维度的一行（0.19c，0.19d 改成就地展开） ---------- */
 
 /* 镜头 / 时段 / 光线 / 视角 / 景别：一行一个，读起来像规格表的一行。
    0.12–0.19b 是把 5 个维度的所有胶囊平铺出来 —— 每维只能选一个，
@@ -1378,6 +1422,13 @@ input[type="file"]::file-selector-button {
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--border);
+}
+
+/* 一行 + 它展开出来的值区，共用一条下边界线。
+   线挂在这一层而不是 .facet-row 上：挂在行上的话，展开时会先看到一条线、
+   再看到线下面又冒出一排胶囊，读起来像「下面那段属于另一行」 */
+.facet-item {
+  border-bottom: 1px solid var(--border);
 }
 
 /* 整行可点，40px 起。行内不设左右内边距 —— 高亮色块正好落在内容区边界上，
@@ -1394,7 +1445,6 @@ input[type="file"]::file-selector-button {
   color: var(--text);
   background: none;
   border: 0;
-  border-bottom: 1px solid var(--border);
   cursor: pointer;
 }
 
@@ -1409,7 +1459,7 @@ input[type="file"]::file-selector-button {
 
 /* 值是这一页真正要定的东西，给正文的字号（14），不用标注的 13。
    ⚠️ 值里可能混进 AI 自己定的（不在候选里的），长这样会被省略号截掉 ——
-   但要换掉它只需要点开这一行，弹层里能看到完整值 */
+   但要换掉它只需要点开这一行，展开区里能看到完整的值 */
 .facet-row-val {
   flex: 1 1 auto;
   min-width: 0;
@@ -1428,6 +1478,11 @@ input[type="file"]::file-selector-button {
   font-size: 12px;
   line-height: 1;
   color: var(--muted);
+  transition: transform var(--dur) var(--ease-io);
+}
+
+.facet-row-caret.is-open {
+  transform: rotate(180deg);
 }
 
 @media (hover: hover) {
@@ -1448,6 +1503,18 @@ input[type="file"]::file-selector-button {
 .facet-row:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
+}
+
+/* 展开出来的值区（0.19d）：就地挂在行的下面，不缩进、用满内容宽度。
+   缩进到「值」那一列会好看一点，但 390px 下就只剩 290px 可用，
+   一个「中长焦」就把行折了 —— 这里优先保证一行放得下。
+   gap 用 7px 和首页的 .tag-row 对齐：胶囊热区靠 ::after inset -4px 外扩，
+   间距再小相邻两枚就会互相盖住（见 .tag-chip 那段注释） */
+.facet-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 0 0 14px;
 }
 
 /* ---------- 新增页：底部固定保存条（0.19c） ---------- */

@@ -87,36 +87,56 @@
             </div>
 
             <!-- AI 闭环（0.19c 从「档位」组挪到这里）：产出的东西填的是档位和技巧，
-                 但动作本身是「把这张照片的信息填起来」的一步，和照片/标题/描述同组 -->
+                 但动作本身是「把这张照片的信息填起来」的一步，和照片/标题/描述同组。
+
+                 0.19d 把这一整段合成一条流：原来「生成提示词 / 粘贴回填」是两颗平级
+                 按钮，但它们是同一件事的两端 —— 用户得先判断点哪颗，而且提示词还没
+                 生成时点「粘贴回填」也没有意义。现在只有一颗主按钮：
+                 点它 = 复制提示词 + 露出粘贴框，回来往框里一粘就自动填。 -->
             <div class="field">
               <span class="label">AI 分析</span>
 
               <!-- 站里不接 AI 的剪贴板闭环：复制提示词 → 连照片发给外部 AI → JSON 粘回来。
                    提示词正文见 docs/PROMPT.md -->
               <div class="ai-bar">
-                <button type="button" class="btn ghost" :disabled="busy" @click="genPrompt">生成提示词</button>
-                <button type="button" class="btn ghost" :disabled="busy" @click="toggleReply">粘贴回填</button>
+                <button type="button" class="btn" :disabled="busy" @click="genPrompt">
+                  {{ promptDone ? '重新复制提示词' : '生成提示词并复制' }}
+                </button>
               </div>
 
-              <!-- 只读框：自动复制成功时它是「抄得到」的备份，
-                   复制失败（非 https / 权限被拒）时它就是唯一的出路 -->
+              <!-- 提示词框默认收着：这段文字是要复制的，不是要读的。
+                   只有两种情况得看见它 —— 复制失败（手抄是唯一的出路，js 里会自动展开）、
+                   或者用户自己想核对一遍。入口做成一颗不起眼的文字键，不跟主按钮抢 -->
+              <div class="ai-sub" v-if="promptText">
+                <button type="button" class="link-btn" :disabled="busy" @click="togglePrompt">
+                  {{ promptOpen ? '收起提示词' : '看一眼提示词' }}
+                </button>
+              </div>
+
               <textarea
-                v-if="promptOpen"
+                v-show="promptOpen"
                 class="ai-box"
                 rows="6"
                 readonly
                 :value="promptText"
               ></textarea>
 
-              <div v-if="replyOpen" class="reply-wrap">
+              <!-- 粘贴框：生成提示词之后才出现。
+                   ⚠️ 不自动聚焦 —— 点完那颗按钮人是要切到 AI 那边去的，
+                   这时候弹出键盘只会挡住正要发出去的照片。
+                   粘贴由 js 的 onPaste 直接接管并回填，下面那颗键是兜底。 -->
+              <div v-show="replyOpen" class="reply-wrap">
                 <textarea
                   ref="replyBox"
                   v-model="replyText"
                   class="ai-box"
                   rows="5"
-                  placeholder="把 AI 回的 JSON 整段粘在这里"
+                  placeholder="切回来，把 AI 回的 JSON 整段粘在这里"
+                  @paste="onPaste"
                 ></textarea>
-                <button type="button" class="btn" :disabled="busy" @click="applyReply">解析并填入</button>
+                <button type="button" class="link-btn" :disabled="busy" @click="applyReply">
+                  没自动填上就点这里
+                </button>
               </div>
 
               <p v-if="feedback" class="ai-note">{{ feedback }}</p>
@@ -141,24 +161,44 @@
           <div class="group-body" v-show="open.facets">
             <div class="tag-picker">
               <!-- 单选维度（镜头 / 时段 / 光线 / 视角 / 景别）：一行一个，整行可点，
-                   弹出底部选择器。0.12–0.19b 是把 5 个维度的胶囊全平铺出来 ——
-                   每维只能选一个，扫一堆胶囊比直接挑一个慢得多，首屏也被它撑得很长。
+                   点开后在**这一行下面**展开候选值。0.12–0.19b 是把 5 个维度的胶囊
+                   全平铺出来（扫一堆胶囊比直接挑一个慢，首屏也被撑得很长）；
+                   0.19c 改成弹底部选择器，可一维只选一个值，却要为它盖一层遮罩、
+                   滚一次轮、再点一次确认 —— 三次触碰。展开到行下面两次就够，
+                   而且维度名和已选值一直留在视野里（遮罩会把它们全挡住）。
                    ⚠️ 一行只显示一个值，所以这一支**只放 isMulti 为假的维度**，
                    多值的那些（姿势、AI 追加的）走下面的胶囊，否则会漏掉值 -->
               <div class="facet-rows">
-                <button
-                  v-for="g in singleGroups"
-                  :key="g.name"
-                  type="button"
-                  class="facet-row"
-                  :disabled="busy"
-                  :aria-label="g.label + '：' + (facetValue(g.name) || '未选')"
-                  @click="openPicker(g.name)"
-                >
-                  <span class="facet-row-name">{{ g.label }}</span>
-                  <span class="facet-row-val" :class="{ 'is-empty': !facetValue(g.name) }">{{ facetValue(g.name) || '未选' }}</span>
-                  <span class="facet-row-caret">▾</span>
-                </button>
+                <div v-for="g in singleGroups" :key="g.name" class="facet-item">
+                  <button
+                    type="button"
+                    class="facet-row"
+                    :disabled="busy"
+                    :aria-expanded="expandedFacet === g.name ? 'true' : 'false'"
+                    :aria-label="g.label + '：' + (facetValue(g.name) || '未选')"
+                    @click="toggleFacet(g.name)"
+                  >
+                    <span class="facet-row-name">{{ g.label }}</span>
+                    <span class="facet-row-val" :class="{ 'is-empty': !facetValue(g.name) }">{{ facetValue(g.name) || '未选' }}</span>
+                    <span class="facet-row-caret" :class="{ 'is-open': expandedFacet === g.name }">▾</span>
+                  </button>
+
+                  <!-- 展开的值区。手风琴（同时只开一行）是有意的：核对时本来就是
+                       一次看一个维度，而且页面高度上限因此固定成一行，
+                       改五个维度也不会把页面越拉越长 -->
+                  <div class="facet-inline" v-show="expandedFacet === g.name">
+                    <button
+                      v-for="val in chipValues(g)"
+                      :key="val"
+                      type="button"
+                      class="tag-chip"
+                      :class="{ 'is-on': isOn(g.name, val), 'is-loose': isLoose(g, val) }"
+                      :disabled="busy"
+                      :aria-pressed="isOn(g.name, val) ? 'true' : 'false'"
+                      @click="pickFacet(g.name, val)"
+                    >{{ val }}</button>
+                  </div>
+                </div>
               </div>
 
               <!-- 多选维度（姿势）+ 库里已有的追加维度：胶囊照旧平铺。
@@ -217,7 +257,8 @@
               </li>
             </ul>
             <p class="group-empty" v-else>
-              还没有技巧。在上面点「粘贴回填」，AI 给的拍摄小 tips 会出现在这里。
+              还没有技巧。在上面点「生成提示词并复制」，连照片一起发给能看图的 AI，
+              再把它回的 JSON 粘回来 —— 它给的拍摄小 tips 会出现在这里。
             </p>
           </div>
         </section>
@@ -241,19 +282,6 @@
         </div>
       </form>
     </main>
-
-    <!-- 单选维度的底部选择器。
-         列首永远是「不填」—— picker 只能选不能清空，没有这个出口就变成
-         「选错了只能将错就错」，而这本手册允许空着（拿不准的空着就行） -->
-    <van-popup v-model:show="pickerOpen" position="bottom" round :safe-area-inset-bottom="true">
-      <van-picker
-        :title="pickerTitle"
-        :columns="pickerColumns"
-        v-model="pickerValue"
-        @confirm="onPickConfirm"
-        @cancel="pickerOpen = false"
-      ></van-picker>
-    </van-popup>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
