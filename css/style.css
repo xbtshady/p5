@@ -1,72 +1,61 @@
 /* ============================================================================
- * P5 样式表 —— 0.6 冷灰 + 磨砂
+ * P5 样式表 —— 0.18（规格手册感）
  * ============================================================================
  *
- * 三条原则：
- *   1. 照片是主角 —— 底与卡面都是中性色（冷灰系，不带暖黄），不给照片染任何色调
- *   2. 层次靠阴影 + 玻璃，不靠边框 —— 淡色下 1px 灰边框会显脏，还会和照片抢线条
- *   3. 动效克制 —— 只在 hover / focus / 入场三处出现，120–240ms
+ * 三条原则（0.16 改版后）：
+ *   1. 照片是主角 —— 底色是纸白，界面不含任何彩色，唯一有颜色的东西是照片
+ *   2. 层次靠**留白 + 细节线 + 字重**，不靠玻璃和阴影
+ *      （0.6–0.15 那套磨砂玻璃 + 大圆角 + 光斑层已整套作废，见 DESIGN.md）
+ *   3. 排印拉得开 —— 三级字号 16 / 13 / 11，数字用等宽（tabular-nums）；
+ *      小节标签用大字距小字号，这是「手册」感的主要来源
  *
- * 配色是全站唯一的来源，改主题只改 :root。
- * 括号里是对比度，已按 WCAG 算过：正文要 ≥ 7:1，次要文字和按钮要 ≥ 4.5:1。
+ * 配色与圆角只有一个来源：`:root`。三页共用（index / create / login），
+ * Vant 的语义色也指回它。
+ * 对比度按**纸白底**算过：正文 17.6:1、次要文字 4.84:1、危险色 5.73:1。
+ * ⚠️ 改底色或字号后必须重算，0.6 时代在这上面栽过两次。
  *
- * 磨砂（毛玻璃）在哪几处：登录卡 .card、列表卡 .shot、顶栏 .topbar。
- * 它要求背后**有东西可透** —— 所以 body::before 铺了一层光斑，见那一节。
- * 不支持 backdrop-filter 的浏览器由文件末尾的 @supports not 块退回实色。
- *
- * 无障碍：文件末尾有一段 prefers-reduced-motion，系统开了「减少动态效果」
- * 会把所有动画和过渡压到 0.001ms（保留终态，不是删掉效果）。
+ * 全站唯一一处阴影：顶栏的下拉菜单（它必须浮起来才读得出「在别的层」）。
+ * 其余所有分隔一律用 1px 细节线。
  * ========================================================================== */
 
 :root {
   /* ---------- 颜色 ---------- */
-  /* 页面底：冷灰。⚠️ 这个值不是随便挑的 —— 它是磨砂「有没有效果」的前提之一。
-     底色越接近白，背后的光斑和它落差越小，玻璃糊完等于没糊（0.6 第一版就是这么翻车的）。
-     现在的底 + html::before 的光斑落差约 22%，隔着 0.55 的白卡还看得出冷暖过渡。 */
-  --bg: #d7dbe2;
-  /* 实色白：给「必须不透明」的地方用 —— 输入框、ghost 按钮、Vant 的表单块、
-     以及不支持 backdrop-filter 时的降级卡面。磨砂卡面走下面的 --glass。 */
-  --card: #ffffff;
-  --skeleton: #e4e6ea;        /* 图片尚未解码时的占位灰 */
-  --text: #16181c;            /* 正文（白卡 17.8:1；最暗底 14.8:1） */
-  /* 次要文字。⚠️ 5c616b 而不是更浅的 6c717b：
-     底色压暗之后，6c717b 在最坏情况（光斑最暗处）只有 4.09:1，不到 WCAG 的 4.5。
-     5c616b 在最坏情况 5.19:1，留了余量。改底色/改透度都要重算这个值。 */
-  --muted: #5c616b;
-  --accent: #16181c;          /* 主色：近黑（现代风），白字 17.6:1 */
-  --accent-ink: #2b2f36;      /* 主色按下/hover 略提亮一档 */
-  --accent-soft: rgba(22, 24, 28, 0.08);   /* 焦点外圈、浅底 */
-  /* 破坏性动作 / 错误文字。⚠️ 原本是 d8452f，底色压暗后它在最坏情况只有 3.64:1，
-     不达标；换 bc331c 后最坏 4.83:1、最亮 5.79:1。
-     注意 js/app.js 的 confirmButtonColor 要同步改（JS 读不到 CSS 变量，只能抄字面量）。 */
-  --danger: #bc331c;
-  --border: rgba(22, 24, 28, 0.08);         /* 分隔线、卡片描边 */
-  --border-strong: rgba(22, 24, 28, 0.16);  /* 输入框这类需要看清轮廓的边 */
+  --bg: #fbfaf8;              /* 纸白页面底 */
+  --card: #ffffff;            /* 卡片 / 输入框 */
+  --chip: #f1f0ed;            /* 未选中的胶囊底 */
+  --skeleton: #f0efec;        /* 图片未解码时的占位 */
+  --text: #17181a;            /* 正文（纸白底 17.6:1） */
+  --muted: #6b6f76;           /* 次要文字（4.84:1） */
+  --accent: #17181a;          /* 主色：近黑，白字 17.6:1 */
+  --accent-ink: #2c2f33;      /* 主色按下 / hover */
+  --accent-soft: var(--ink-08);
+  --danger: #b3382a;          /* 危险动作 / 错误（5.73:1） */
+  --border: var(--ink-10);              /* 细节线 */
+  --border-strong: var(--ink-20);       /* 输入框轮廓 */
 
-  /* ---------- 磨砂：卡片与顶栏的半透明底 ---------- */
-  /* ⚠️ 0.55 是「看得见透」和「字读得清」的平衡点。
-     0.72 太实（0.6 第一版），玻璃和纯白卡肉眼分不出；再低文字对比度会掉。
-     顶栏取 0.8 —— 比卡片实，因为上面有文字又没有别的东西托着。 */
-  --glass: rgba(255, 255, 255, 0.55);
-  --glass-strong: rgba(255, 255, 255, 0.8);
-  --blur: 18px;
+  --ink-04: rgba(23, 24, 26, 0.04);     /* hover 浅底 */
+  --ink-05: rgba(23, 24, 26, 0.05);     /* hover / 按下浅底 */
+  --ink-08: rgba(23, 24, 26, 0.08);     /* 焦点柔光 */
+  --ink-10: rgba(23, 24, 26, 0.10);     /* 细节线与阴影 */
+  --ink-20: rgba(23, 24, 26, 0.20);     /* 输入框轮廓 */
+  --ink-50: rgba(16, 18, 22, 0.50);     /* 照片删除按钮底 */
+  --dark-94: rgba(16, 18, 22, 0.94);    /* 全屏看图遮罩 */
 
-  /* ---------- 层次：三级阴影（磨砂卡需要「浮起」感，靠外扩阴影而不是描边） ---------- */
-  --shadow-1: 0 1px 2px rgba(16, 20, 28, 0.05), 0 1px 3px rgba(16, 20, 28, 0.05);
-  --shadow-2: 0 1px 2px rgba(16, 20, 28, 0.04), 0 10px 32px rgba(16, 20, 28, 0.1);
-  --shadow-3: 0 2px 6px rgba(16, 20, 28, 0.06), 0 24px 60px rgba(16, 20, 28, 0.16);
+  /* ---------- 圆角：小一档，矩形感是「工具 / 手册」的一部分 ---------- */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
 
-  /* ---------- 圆角阶：现代风比 0.4 更圆一档 ---------- */
-  --r-sm: 10px;
-  --r-md: 16px;
-  --r-lg: 24px;
-
-  /* ---------- 动效：时长与曲线 ---------- */
+  /* ---------- 动效 ---------- */
   --dur-fast: 120ms;          /* 按下回弹 */
   --dur: 180ms;               /* hover / focus */
   --dur-slow: 240ms;          /* 入场 */
-  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);      /* 入场：起步快、收尾慢 */
-  --ease-io: cubic-bezier(0.4, 0, 0.2, 1);     /* 状态变化：两头匀 */
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --ease-io: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---------- 尺寸 ---------- */
+  --topbar-h: 56px;           /* 顶栏高（不含 1px 细节线），.feed-wrap 的 padding-top 读它 */
+  --gutter: 18px;             /* 页面左右留白 */
 }
 
 * {
@@ -79,7 +68,7 @@
 }
 
 /* Vue 挂载前的启动占位层，挂载完成后由页面脚本移除。
-   与页面同底色 + 居中，切换时不会跳动。 */
+   与页面同底色 + 居中，切换时不会跳动 */
 .boot {
   position: fixed;
   top: 0;
@@ -97,6 +86,7 @@
 
 html {
   min-height: 100%;
+  background: var(--bg);
 }
 
 body {
@@ -106,72 +96,21 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  /* 注意：底色不给 body。body 是不透明元素，会给里面的 fixed 伪元素当**
-   * **包含块**，光斑从此固定死在 body 上、跟着内容一起滚（列表页会看见光斑滑走）。
-   * 底色交给 html（见下），body 保持透明。 */
+  /* 底色给 html 不给 body：body 一旦有不透明底色，就会成为内部 fixed 元素的
+     包含块（0.6 的光斑层就是这么栽的）。现在没有 fixed 层了，这条约定仍保留 ——
+     将来加别的 fixed 层时不会重踩。 */
   color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Microsoft YaHei", sans-serif;
+    "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ---------- 背景：底色 + 光斑，磨砂的「料」 ----------
- *
- * 毛玻璃只会模糊它**背后**的东西。如果背后是一片纯色灰，模糊完还是纯色灰，
- * 眼睛完全看不出磨砂感。所以底上必须有点东西可透 —— 光斑就是这层「料」。
- *
- * ⚠️ 两条踩过的坑：
- *   1. **底色必须给 html，不能给 body。** body 上的 `background: var(--bg)` 是不透明色，
- *      会让 body 成为内部 fixed 伪元素的包含块 —— 于是 `position: fixed` 的光斑
- *      退化成「固定在 body 上」，跟着页面滚，列表页一滚光斑就滑走了。
- *   2. **伪元素要挂在 html 上。** 挂在 body 上同理：body 在列表页是高块，
- *      背景跟着内容增长，顶部会露出没铺到的空白。
- *
- * 光斑用「一个视口大小、边缘羽化的圆」而不是全屏 radial —— 后者要求圆的两轴尺寸
- * 写死成像素，在手机上圆比视口大得多，只有中心一小块被柔化，等于没有渐变。
- *
- * ⚠️ 光斑必须**看得见**，磨砂才看得见。第一版失败的原因就是太淡：
- *    底色 #eceef1，光斑只比它亮/暗 5%，模糊前后都是同一个色 → 肉眼零效果。
- *    现在最亮拉到纯白、最暗拉到 #b9c0cc，落差约 18%。
- *
- * ⚠️ 且光斑必须有**形状**。磨砂模糊的是细节；一层光滑渐变被模糊后还是那层渐变，
- *    看不出任何变化。所以用一个大圆当「界碑」—— 玻璃压过圆的边缘时，
- *    边缘被糊开的那一段就是肉眼能看到的磨砂。
- *    圆放在卡片**会压到的位置**（卡片在 40% 高度附近），不是随便找个角落。
- */
-html {
-  min-height: 100%;
-  background: var(--bg);
-}
-
-html::before {
-  content: "";
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: -1;
-  pointer-events: none;
-  /* ⚠️ 光斑要有**明显的形状边界**，磨砂才看得出来。
-   *
-   * 第一版三处都做错了，结果是「代码全对、肉眼零效果」：
-   *   a. 光斑太淡（只比底色亮 5%）→ 糊完还是同一个色
-   *   b. 只有光滑渐变、没有可辨认的边缘 → 模糊前后都是那层渐变
-   *   c. 卡片太白（0.86）→ 把背后的东西盖掉了
-   *
-   * 现在：底色压到 #d7dbe2（比原来的 #eceef1 暗一档），光斑最亮拉到纯白，
-   * 落差约 22%。卡片 0.55。这样玻璃压过光斑边缘时，边缘被糊开的一段是看得见的。
-   */
-  background: radial-gradient(
-      46% 26% at 26% 30%,
-      #ffffff 0%,
-      rgba(255, 255, 255, 0.62) 46%,
-      transparent 100%
-    ),
-    radial-gradient(52% 30% at 78% 62%, #ffffff 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%),
-    radial-gradient(90% 44% at 50% 108%, #aab2c0 0%, transparent 78%),
-    linear-gradient(180deg, #d7dbe2 0%, #e3e6eb 38%, #ccd2db 100%);
+/* 列表页：照片要全出血，所以 body 不再给居中留白；
+   文字块的左右留白由 .explore / .shot-body 自己管。 */
+body.page-list {
+  padding: 0;
+  align-items: flex-start;
+  justify-content: flex-start;
 }
 
 /* ---------- 入场动效 ---------- */
@@ -188,7 +127,7 @@ html::before {
   }
 }
 
-/* 图片/预览的显影感：从半透明浮出，而不是「啪」地跳出来 */
+/* 图片的显影感：从半透明浮出，而不是「啪」地跳出来 */
 @keyframes develop {
   from {
     opacity: 0.35;
@@ -200,30 +139,26 @@ html::before {
   }
 }
 
-/* ---------- 卡片（登录页） ---------- */
+/* ---------- 登录页 ---------- */
 
+/* 认证卡：实色白 + 细节线。没有玻璃、没有三级阴影 —— 层次靠描边和留白 */
 .card {
   width: 100%;
-  max-width: 400px;
-  padding: 32px 24px;
-  /* 磨砂：半透明白 + 模糊背后的光斑。没有 backdrop-filter 的老浏览器
-     会退回上一层 --card（白色），只是少了通透感，不影响可读性 */
-  background: var(--glass);
-  backdrop-filter: blur(var(--blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-3);
+  max-width: 380px;
+  padding: 30px 24px 26px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
   animation: rise var(--dur-slow) var(--ease) both;
 }
 
-/* ---------- 登录页 ---------- */
-
 .brand {
-  margin: 0 0 28px;
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  margin: 0 0 26px;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  /* 字距会在最后一个字后面多留一份空，补一个同值的缩进才是真居中 */
+  text-indent: 0.24em;
   text-align: center;
 }
 
@@ -233,19 +168,11 @@ html::before {
   gap: 16px;
 }
 
-/* ---------- 登录页字段：标签并进占位提示 ----------
- * 现代登录表单通行做法（163 / Google / GitHub 都是）：不排行外标签，
- * 把「这格填什么」写进 placeholder，一行一件事，视觉更短更利落。
- *
+/* 登录页字段：标签并进占位提示。
  * 两点没跟着省：
  *   1. 无障碍的标签 —— 视觉隐藏但留在无障碍树里（.sr-only），
  *      placeholder 一打字就没了，只靠它等于没标签
- *   2. 输入框轮廓 —— 去掉行外标签后它成了唯一的分组线索，
- *      所以这两格必须自带边框（不能像字段组里那样靠留白分组）
- *
- * 这里用原生 input 而不是 van-field：全局 input 样式（边框 + 圆角 + 白底 +
- * 焦点外圈）正好就是要的样子，不必再叠一层组件覆盖。
- */
+ *   2. 输入框轮廓 —— 去掉行外标签后它是唯一的分组线索，必须自带边框 */
 .login-fields {
   display: flex;
   flex-direction: column;
@@ -253,8 +180,7 @@ html::before {
 }
 
 /* 视觉上不显示、但读屏读得到。⚠️ 不能用 display:none / visibility:hidden ——
-   那样无障碍树里也没了，等于没标签。绝对定位也要留着：一旦进文档流，
-   它就成了 flex 的一项，把字段和字段之间撑开 */
+   那样无障碍树里也没了。绝对定位也要留着：一旦进文档流就会把字段撑开 */
 .sr-only {
   position: absolute;
   width: 1px;
@@ -267,10 +193,6 @@ html::before {
   border: 0;
 }
 
-/* ---------- 密码可见性切换 ---------- */
-
-/* 按钮压在输入框右缘内侧，输入框自己让出右侧空间，
-   免得密码圆点排到图标底下 */
 .pw-wrap {
   position: relative;
 }
@@ -282,7 +204,7 @@ html::before {
 .pw-toggle {
   position: absolute;
   top: 50%;
-  right: 8px;
+  right: 6px;
   transform: translateY(-50%);
   display: flex;
   align-items: center;
@@ -293,41 +215,47 @@ html::before {
   color: var(--muted);
   background: transparent;
   border: 0;
+  border-radius: var(--r-sm);
   cursor: pointer;
-  transition: color var(--dur) var(--ease-io);
+  transition: color var(--dur) var(--ease-io), background var(--dur) var(--ease-io);
 }
 
 .pw-toggle:hover {
   color: var(--text);
+  background: var(--ink-05);
 }
 
 .pw-toggle svg {
-  width: 20px;
-  height: 20px;
+  width: 19px;
+  height: 19px;
   display: block;
 }
 
-/* 键盘可达：同 .add-btn / .text-btn 的约定 */
 .pw-toggle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
+/* ---------- 表单字段 ---------- */
+
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
+/* 段标题：比正文重一档、不放大，靠字重和颜色拉开层级 */
 .label {
-  font-size: 12px;
-  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  letter-spacing: 0.01em;
 }
 
 /* 字体不小于 16px，否则 iOS Safari 聚焦时会自动放大页面 */
 input {
   width: 100%;
-  padding: 11px 13px;
+  padding: 11px 12px;
   font-size: 16px;
   font-family: inherit;
   color: var(--text);
@@ -343,7 +271,7 @@ textarea::placeholder {
   color: var(--muted);
 }
 
-/* 焦点：主色边框 + 一圈柔光。键盘 Tab 进来同样看得见，没牺牲无障碍 */
+/* 焦点：主色边框 + 一圈柔光。键盘 Tab 进来同样看得见 */
 input:focus {
   outline: none;
   border-color: var(--accent);
@@ -356,7 +284,7 @@ input:disabled {
 
 textarea {
   width: 100%;
-  padding: 11px 13px;
+  padding: 11px 12px;
   font-size: 16px;
   font-family: inherit;
   line-height: 1.6;
@@ -382,7 +310,7 @@ textarea:disabled {
 /* 文件选择框：各浏览器默认样式差异大，统一成虚线框 + 一个像按钮的选择键 */
 input[type="file"] {
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: 13px;
   color: var(--muted);
   background: var(--skeleton);
   border-style: dashed;
@@ -391,7 +319,7 @@ input[type="file"] {
 
 input[type="file"]::file-selector-button {
   margin-right: 10px;
-  padding: 7px 12px;
+  padding: 6px 11px;
   font-size: 13px;
   font-family: inherit;
   color: var(--text);
@@ -404,41 +332,16 @@ input[type="file"]::file-selector-button {
 }
 
 input[type="file"]:hover::file-selector-button {
-  background: rgba(22, 24, 28, 0.04);
+  background: var(--ink-04);
   border-color: var(--muted);
-}
-
-/* 选好图之后的预览 */
-.preview {
-  margin: 0;
-  background: var(--skeleton);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  overflow: hidden;
-  animation: develop var(--dur-slow) var(--ease) both;
-}
-
-.preview img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.preview-note {
-  margin: 0;
-  padding: 8px 12px;
-  font-size: 12px;
-  color: var(--muted);
-  background: var(--card);
-  border-top: 1px solid var(--border);
 }
 
 /* ---------- 按钮 ---------- */
 
 .btn {
   width: 100%;
-  padding: 12px;
-  font-size: 16px;
+  padding: 11px 12px;
+  font-size: 14px;
   font-family: inherit;
   font-weight: 500;
   color: #ffffff;
@@ -446,132 +349,52 @@ input[type="file"]:hover::file-selector-button {
   border: none;
   border-radius: var(--r-sm);
   cursor: pointer;
-  box-shadow: var(--shadow-1);
   transition: background var(--dur) var(--ease-io),
-    box-shadow var(--dur) var(--ease-io), transform var(--dur-fast) var(--ease-io);
+    transform var(--dur-fast) var(--ease-io);
 }
 
 .btn:hover:not(:disabled) {
   background: var(--accent-ink);
-  box-shadow: var(--shadow-2);
 }
 
 /* 按下去要有「被按到」的反馈，但只缩 1.5%，多了就显得浮夸 */
 .btn:active:not(:disabled) {
   transform: scale(0.985);
-  box-shadow: var(--shadow-1);
 }
 
 .btn:disabled {
   opacity: 0.45;
   cursor: default;
-  box-shadow: none;
 }
 
 .btn.ghost {
   color: var(--text);
   background: var(--card);
   border: 1px solid var(--border-strong);
-  box-shadow: none;
 }
 
 .btn.ghost:hover:not(:disabled) {
-  background: rgba(22, 24, 28, 0.04);
+  background: var(--ink-04);
   border-color: var(--muted);
 }
 
-/* ---------- 列表页：顶部条 + 内容 ---------- */
-
-/* 列表页不是居中的单卡片，改成顶部条 + 从上往下排。
-   **不覆盖 background** —— 底色和光斑都由 html（含 html::before）统一给，
-   三页共用同一套底，不留特例。（body 保持透明，见 body 那节的说明。） */
-.page-list {
-  display: block;
-  padding: 0;
-}
-
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 20px;
-  /* 磨砂顶栏：照片/卡片从下面滚过时被糊成一层雾，而不是硬生生被切断。
-     不透明度取 0.86 —— 比卡片的 0.72 实，因为上面有文字要读 */
-  background: var(--glass-strong);
-  backdrop-filter: saturate(180%) blur(var(--blur));
-  -webkit-backdrop-filter: saturate(180%) blur(var(--blur));
-  border-bottom: 1px solid transparent;
-  transition: border-color var(--dur) var(--ease-io),
-    box-shadow var(--dur) var(--ease-io);
-}
-
-/* 滚动之后才浮出下边界，提示下面还有内容（由 js/app.js 挂 class） */
-.topbar.is-scrolled {
-  border-bottom-color: var(--border);
-  box-shadow: 0 1px 16px rgba(16, 20, 28, 0.06);
-}
-
-.topbar-brand {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.add-btn {
-  width: 34px;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 20px;
-  line-height: 1;
-  color: #ffffff;
-  background: var(--accent);
-  border-radius: 50%;
-  text-decoration: none;
-  box-shadow: var(--shadow-1);
-  transition: background var(--dur) var(--ease-io),
-    box-shadow var(--dur) var(--ease-io), transform var(--dur-fast) var(--ease-io);
-}
-
-.add-btn:hover {
-  background: var(--accent-ink);
-  box-shadow: var(--shadow-2);
-  transform: translateY(-1px);
-}
-
-.add-btn:active {
-  transform: scale(0.94);
-}
-
 .text-btn {
-  padding: 7px 12px;
+  padding: 6px 10px;
   font-size: 13px;
   font-family: inherit;
-  color: var(--muted);
+  color: var(--text);
   background: var(--card);
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
   cursor: pointer;
+  text-decoration: none;
   transition: color var(--dur) var(--ease-io),
     background var(--dur) var(--ease-io), border-color var(--dur) var(--ease-io),
     transform var(--dur-fast) var(--ease-io);
 }
 
 .text-btn:hover:not(:disabled) {
-  color: var(--text);
-  background: rgba(22, 24, 28, 0.04);
+  background: var(--ink-04);
   border-color: var(--muted);
 }
 
@@ -586,26 +409,169 @@ input[type="file"]:hover::file-selector-button {
 
 /* 键盘可达：鼠标用户看不到，Tab 进来才出现 */
 .add-btn:focus-visible,
-.text-btn:focus-visible {
+.text-btn:focus-visible,
+.menu-btn:focus-visible,
+.menu-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
+/* ---------- 顶栏（三页共用） ---------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: calc(var(--topbar-h) + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) var(--gutter) 0;
+  background: var(--bg);
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--dur) var(--ease-io);
+}
+
+/* 滚动之后才浮出下边界，提示下面还有内容（由 js/app.js 挂 class） */
+.topbar.is-scrolled {
+  border-bottom-color: var(--border);
+}
+
+.topbar-brand {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 「＋」：轻量方形键，不再是黑圆钮 —— 手册感里它是个动作，不是主角 */
+.add-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  text-decoration: none;
+  transition: background var(--dur) var(--ease-io),
+    border-color var(--dur) var(--ease-io), transform var(--dur-fast) var(--ease-io);
+}
+
+.add-btn:hover {
+  background: var(--ink-04);
+  border-color: var(--muted);
+}
+
+.add-btn:active {
+  transform: scale(0.95);
+}
+
+/* 顶栏的「⋯」菜单：退出这类低频动作收进来，不常驻抢占顶栏 */
+.menu-wrap {
+  position: relative;
+}
+
+.menu-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 16px;
+  font-family: inherit;
+  line-height: 1;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-io),
+    border-color var(--dur) var(--ease-io);
+}
+
+.menu-btn:hover {
+  background: var(--ink-04);
+  border-color: var(--muted);
+}
+
+/* 全站唯一一处阴影：下拉必须浮起来才读得出「在别的层」 */
+.menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  min-width: 132px;
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: 0 8px 24px var(--ink-10);
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease-io), color var(--dur) var(--ease-io);
+}
+
+.menu-item:hover:not(:disabled) {
+  background: var(--ink-05);
+}
+
+.menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---------- 内容区 ---------- */
+
+/* 列表页：照片全出血，所以整页不留左右内边距 ——
+   需要留白的文字块各自加（`.explore` / `.shot-body`） */
 .feed-wrap {
   max-width: 560px;
   margin: 0 auto;
-  padding: 20px;
-  /* 顶部补上顶栏的高度：顶栏是 sticky 的，会盖住主内容区的开头。
-     桌面/手机浏览器里 61 正好对齐，多出来的 1px 是描边的余量 */
-  padding-top: calc(61px + env(safe-area-inset-top, 0px));
-  /* 刘海屏横放时左右也要留出安全区 */
-  padding-right: max(20px, env(safe-area-inset-right, 0px));
-  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding: 0;
+  /* 顶栏是 sticky 的会盖住内容开头，这里补上它的高度 + 一点呼吸
+     （读同一个变量，改顶栏不用两处对数字） */
+  padding-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 14px);
+}
+
+/* 新增页这种「表单页」的内容区：左右留白由这里统一给 */
+.form-wrap {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+  padding-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 6px);
+  padding-bottom: 28px;
 }
 
 .empty {
-  margin: 48px 0;
-  font-size: 14px;
+  margin: 44px 0;
+  padding: 0 var(--gutter);
+  font-size: 13px;
   color: var(--muted);
   text-align: center;
   animation: rise var(--dur-slow) var(--ease) both;
@@ -615,13 +581,14 @@ input[type="file"]:hover::file-selector-button {
 .empty::before {
   content: "";
   display: block;
-  width: 56px;
-  height: 56px;
-  margin: 0 auto 16px;
-  background: var(--card);
-  border: 1.5px dashed var(--border-strong);
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 14px;
+  border: 1px dashed var(--border-strong);
   border-radius: var(--r-md);
 }
+
+/* ---------- 照片流 ---------- */
 
 .feed {
   list-style: none;
@@ -629,58 +596,57 @@ input[type="file"]:hover::file-selector-button {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 38px;
 }
 
+/* 一条案例：不是「卡片盒子」，是排下来的一张图 + 一段元信息。
+   边界靠留白和细节线；没有背景、没有阴影、没有圆角外壳 */
 .shot {
   position: relative; /* 删除按钮以它为定位参照 */
-  /* 磨砂卡：照片本身不透（img 是不透明的），透出来的是卡片下半部的文字区 ——
-     光斑从那儿泛上来，卡片才有「玻璃」而不是「白纸」的观感 */
-  background: var(--glass);
-  backdrop-filter: blur(var(--blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: var(--r-lg);
-  overflow: hidden;
-  box-shadow: var(--shadow-2);
   animation: rise var(--dur-slow) var(--ease) both;
-  /* 错峰入场：第 n 张晚 50ms 出发，由模板传 --i（上限 6，不然后面要等） */
-  /* ⚠️ 这一行不能用 animation-delay 简写属性合并进上面的 animation ——
-     一旦 --i 是个非法值（例如字符串 '6'，calc('6' * 50ms) 不合法），
-     **整条 animation 简写会一起失效**：动画不跑，元素停在 rise 的 from 帧，
-     也就是 opacity:0 —— 表现为「卡片全透明」而控制台干净。
-     单独写一条属性，最多只是丢延时不丢动画。 */
+  /* 错峰入场：第 n 张晚 50ms 出发，由模板传 --i（上限 6，不然后面要等）
+     ⚠️ 这一行不能并进上面的 animation 简写 —— 一旦 --i 是非法值
+     （例如字符串 '6'，calc('6' * 50ms) 不合法），**整条 animation 简写会一起失效**：
+     动画不跑，元素停在 rise 的 from 帧，也就是 opacity:0 ——
+     表现为「卡片全透明」而控制台干净。
+     单独写一条属性，最坏只丢延时不丢动画。 */
   animation-delay: calc(var(--i, 0) * 50ms);
-  transition: box-shadow var(--dur) var(--ease-io),
-    transform var(--dur) var(--ease-io);
 }
 
-/* 删除按钮：压在照片右上角。
-   用半透明深底 + 白色 × 而不是白色圆钮 —— 照片颜色不可控，
-   白底在浅色照片上会直接消失，深色蒙层才稳定。
-   底色的不透明度取 0.55：浅色照片上也够看清 ×，深色照片上又不会糊成一块。 */
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--skeleton);
+}
+
+/* 图片解码完才显影（is-loaded 由模板在 load 事件里挂上）。
+   从 0.35 开始而不是 0：起点全透明会在那一帧闪白底 */
+.shot img.is-loaded {
+  animation: develop var(--dur-slow) var(--ease) both;
+}
+
+/* 删除按钮：压在照片右上角。用半透明深底 + 白色 × 而不是白色圆钮 ——
+   照片颜色不可控，白底在浅色照片上会直接消失 */
 .shot-del {
   position: absolute;
   top: 10px;
   right: 10px;
   z-index: 2;
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   font-family: inherit;
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1;
   color: #ffffff;
-  background: rgba(16, 18, 22, 0.55);
+  background: var(--ink-50);
   border: none;
-  border-radius: 50%;
+  border-radius: var(--r-sm);
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(16, 18, 22, 0.28);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   transition: background var(--dur) var(--ease-io),
     transform var(--dur-fast) var(--ease-io), opacity var(--dur) var(--ease-io);
 }
@@ -707,27 +673,6 @@ input[type="file"]:hover::file-selector-button {
   outline-offset: 2px;
 }
 
-/* 上浮只在真有鼠标的设备上生效 —— 触屏上 hover 会「粘住」不消失 */
-@media (hover: hover) {
-  .shot:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-2);
-  }
-}
-
-.shot img {
-  display: block;
-  width: 100%;
-  height: auto;
-  background: var(--skeleton);
-}
-
-/* 图片解码完才显影（is-loaded 由模板在 load 事件里挂上）。
-   从 0.35 开始而不是 0：起点全透明会在那一帧闪白底 */
-.shot img.is-loaded {
-  animation: develop var(--dur-slow) var(--ease) both;
-}
-
 /* 临时链接偶尔会取不到（过期/策略拒绝），给个明确的占位而不是破图 */
 .shot-fallback {
   padding: 40px 16px;
@@ -738,37 +683,27 @@ input[type="file"]:hover::file-selector-button {
 }
 
 .shot-body {
-  padding: 12px 14px 14px;
-  /* 磨砂卡上的文字区，给一点极淡的白底打底：
-     光斑正巧落在文字下时，靠它把对比度稳在 15:1 以上 */
-  background: rgba(255, 255, 255, 0.5);
+  padding: 12px var(--gutter) 0;
 }
 
 .shot-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 500;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
 }
 
 .shot-note {
-  margin: 6px 0 0;
+  margin: 0;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--muted);
   white-space: pre-wrap;
 }
 
-.shot-date {
-  margin: 8px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-  letter-spacing: 0.01em;
-}
-
-/* ---------- 0.14：档位一行 + 原地展开 ---------- */
-
 /* 档位行（收起态）：只显值、单行、超长省略。
-   次要灰：它和日期一样是元信息，不跟照片和标题抢注意力 */
+   次要色：它和日期一样是元信息，不跟照片和标题抢注意力 */
 .shot-facets {
   margin: 6px 0 0;
   font-size: 13px;
@@ -793,26 +728,32 @@ input[type="file"]:hover::file-selector-button {
   margin-top: 8px;
 }
 
-/* 日期不再自己撑上边距，跟着 .shot-meta 的排版走 */
-.shot-meta .shot-date {
+/* 日期：小字号 + 等宽数字 —— 手册里数字要对得齐 */
+.shot-date {
   margin: 0;
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
-/* 展开开关：行内文字按钮，比 .text-btn 轻 —— 它长在卡片文字流里，
-   白底描边那种「表单按钮」的分量会把它变成卡片里的第二主角 */
+/* 展开开关：行内文字按钮，比 .text-btn 轻 —— 它长在文字流里，
+   白底描边那种「表单按钮」的分量会把它变成第二条主角 */
 .shot-toggle {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex: 0 0 auto;
   padding: 4px 6px;
-  font-size: 12px;
+  font-size: 11px;
   font-family: inherit;
+  letter-spacing: 0.04em;
   color: var(--muted);
   background: transparent;
   border: 0;
   border-radius: var(--r-sm);
   cursor: pointer;
+  font-variant-numeric: tabular-nums;
   transition: color var(--dur) var(--ease-io),
     background var(--dur) var(--ease-io);
 }
@@ -820,7 +761,7 @@ input[type="file"]:hover::file-selector-button {
 @media (hover: hover) {
   .shot-toggle:hover {
     color: var(--text);
-    background: rgba(22, 24, 28, 0.04);
+    background: var(--ink-04);
   }
 }
 
@@ -833,7 +774,7 @@ input[type="file"]:hover::file-selector-button {
    button 上转会把文字一起倒过来 */
 .shot-caret {
   display: inline-block;
-  font-size: 11px;
+  font-size: 10px;
   transition: transform var(--dur) var(--ease-io);
 }
 
@@ -841,166 +782,103 @@ input[type="file"]:hover::file-selector-button {
   transform: rotate(180deg);
 }
 
-/* 展开区：描述 + 全部档位 + 技巧。
-   一刀分隔线划开「默认可见」和「点开才看」，收起时整块不渲染（v-if） */
+/* 展开区：描述 + 全部档位 + 技巧。一条细节线划开「默认可见」和「点开才看」 */
 .shot-more {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--border);
 }
 
-.shot-more .shot-note {
-  margin: 0;
+/* ---------- 探索：分面筛选 ---------- */
+
+.explore {
+  margin: 0 var(--gutter) 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  animation: rise var(--dur-slow) var(--ease) both;
 }
 
-/* ---------- 通用 ---------- */
-
-.error {
-  margin: 0;
-  font-size: 13px;
-  color: var(--danger);
-  word-break: break-all;
-}
-
-/* ---------- 无障碍：尊重系统的「减少动态效果」 ---------- */
-
-/* 压到 0.001ms 而不是删掉动画：保留了终态，元素不会停在透明或位移中途 */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-delay: 0ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-  }
-
-  .shot:hover {
-    transform: none;
-  }
-}
-
-/* ---------- 降级：不支持 backdrop-filter 的浏览器 ---------- */
-
-/* 老 Firefox / 旧安卓 WebView 上 backdrop-filter 无效，但 rgba(255,255,255,0.72)
-   仍然生效 —— 结果是一张半透明卡压在光斑上，没有模糊，字会看不清。
-   所以这里把「玻璃」退回「实色」：白色照旧，只是不再通透。
-   @supports not 只在这类浏览器里命中，现代浏览器一行都不会执行。 */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .card,
-  .shot {
-    background: var(--card);
-    border-color: var(--border);
-  }
-
-  .topbar {
-    background: var(--bg);
-  }
-
-  .shot-body {
-    background: transparent;
-  }
-}
-
-/* ============================================================================
- * Vant 主题对齐 —— 0.4
- * ============================================================================
- *
- * Vant 靠 CSS 变量做主题：改主色只动 --van-primary-color 一个变量，
- * 不像 Element Plus 那样要同步改 8 档派生色阶（light-3/5/7/8/9、dark-2、rgb）。
- *
- * 这里把 Vant 的语义色全部指回本文件 :root 的变量，全站配色仍只有一个来源，
- * 以后换主题只改上面那一处。
- *
- * ⚠️ 前提：本文件必须在 Vant 的 index.css **之后**加载（见各 HTML 的 link 顺序），
- * 否则这里的 :root 会先被定义、再被 Vant 的默认值盖掉。
- * ========================================================================== */
-
-:root {
-  --van-primary-color: var(--accent);
-  --van-danger-color: var(--danger);
-  --van-success-color: var(--accent);
-  --van-warning-color: var(--accent);
-
-  --van-background: var(--bg);
-  --van-background-2: var(--card);
-  --van-background-3: var(--card);
-
-  --van-text-color: var(--text);
-  --van-text-color-2: var(--muted);
-  --van-text-color-3: var(--muted);
-  --van-text-color-4: var(--muted);
-
-  --van-border-color: var(--border);
-  --van-radius-sm: var(--r-sm);
-  --van-radius-md: var(--r-sm);
-  --van-radius-lg: var(--r-md);
-
-  /* 顶部导航：交给我们自己的 .topbar 控制高度与底色，避免两套顶栏打架 */
-  --van-nav-bar-background: transparent;
-  --van-nav-bar-title-text-color: var(--text);
-  --van-nav-bar-icon-color: var(--muted);
-  --van-nav-bar-text-color: var(--accent);
-
-  /* 表单字段：字号对齐我们的 15px，内边距交给我们控制 */
-  --van-cell-font-size: 15px;
-  --van-cell-vertical-padding: 12px;
-  --van-cell-horizontal-padding: 14px;
-  --van-field-placeholder-text-color: var(--muted);
-  --van-field-input-text-color: var(--text);
-
-  /* 上传：正方形，跟我们的圆角阶一致。
-     112px 而不是 Vant 默认的 80 —— 照片应用里它是主角，不能只有指甲盖大 */
-  --van-uploader-size: 112px;
-  --van-uploader-radius: var(--r-md);
-}
-
-/* 压缩前后的体积对照。单独用时不要 .preview-note 那层白底，会显得像一块多余的输入框 */
-.size-hint {
-  margin: 10px 0 0;
-  font-size: 12px;
+/* 小节标签：大字距小字号 —— 「手册」感有一半来自这一行 */
+.explore-title {
+  margin: 0 0 14px;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--muted);
+  letter-spacing: 0.22em;
 }
 
-/* ---------- 标签：胶囊 + 新增页的选择器 ---------- */
-
-.tag-picker {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* 一组一个维度。组名 / 胶囊复用新增页那套，两页同一套视觉语言 */
+.explore-group + .explore-group {
+  margin-top: 13px;
 }
 
 .tag-group-name {
   display: block;
-  margin-bottom: 7px;
-  font-size: 12px;
+  margin-bottom: 6px;
+  font-size: 11px;
   color: var(--muted);
+  letter-spacing: 0.1em;
 }
 
 .tag-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 7px;
 }
 
-/* 标签胶囊。选中态用近黑主色 —— 和「＋」、保存键同一支色。
-   全站只有一支主色，不再引入第二种彩色：照片才是唯一有颜色的东西。
-   圆角取满成胶囊状，跟卡片的 24px 大方角拉开差别，一眼看得出「这是可以点的」。 */
+/* 折叠态的「全部维度」开关 */
+.explore-more {
+  margin-top: 14px;
+  padding: 5px 0;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border-strong);
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: color var(--dur) var(--ease-io),
+    border-color var(--dur) var(--ease-io);
+}
+
+.explore-more:hover {
+  color: var(--text);
+  border-bottom-color: var(--text);
+}
+
+.explore-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 筛选态提示。必须显眼到「一眼看出这不是全部」，否则会以为照片丢了 */
+.explore-active {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* 标签胶囊：矩形浅灰底（工具感），选中转近黑底。
+   全站只有一支主色，不引入第二种彩色：照片才是唯一有颜色的东西 */
 .tag-chip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 13px;
+  padding: 5px 10px;
   font-size: 13px;
   font-family: inherit;
   line-height: 1.5;
-  color: var(--muted);
-  background: var(--card);
-  border: 1px solid var(--border-strong);
-  border-radius: 999px;
+  color: var(--text);
+  background: var(--chip);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
   cursor: pointer;
   transition: color var(--dur) var(--ease-io),
     background var(--dur) var(--ease-io), border-color var(--dur) var(--ease-io),
@@ -1010,19 +888,17 @@ input[type="file"]:hover::file-selector-button {
 /* hover 只在真有鼠标的设备上生效 —— 触屏上 hover 会「粘住」不消失 */
 @media (hover: hover) {
   .tag-chip:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--muted);
+    border-color: var(--border-strong);
   }
 
   .tag-chip.is-on:hover:not(:disabled) {
     color: #ffffff;
     background: var(--accent-ink);
-    border-color: var(--accent-ink);
   }
 }
 
 .tag-chip:active:not(:disabled) {
-  transform: scale(0.96);
+  transform: scale(0.97);
 }
 
 .tag-chip.is-on {
@@ -1041,17 +917,35 @@ input[type="file"]:hover::file-selector-button {
   outline-offset: 2px;
 }
 
-/* 0.12 删掉了这里的 .tag-x 和 .tag-add（输入行）：档位的值不再自由输入，
-   界面上没有输入框、也没有单个标签的取消标记 —— 取消就是再点一下那个胶囊。
-   真要找回来，去 git 历史里翻 0.11 那版。 */
+/* 用量数字：等宽，和日期一个口径 */
+.tag-count {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tag-chip.is-on .tag-count {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* AI 自己定的值（不在候选里）。前面缀一个实心圆点 ——
+   用 currentColor，未选中（浅灰底深字）和选中（近黑底白字）都看得见。
+   ⚠️ 不用虚线边框：选中态是近黑实底，虚线边框压在上面基本看不出来 */
+.tag-chip.is-loose::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
 
 .tag-hint {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
-/* ---------- 0.13：AI 闭环（生成提示词 / 粘贴回填） ---------- */
+/* ---------- 新增页：AI 闭环 ---------- */
 
 /* 两个动作并排一行。.btn 本身是满宽 block，这里覆盖成等分 ——
    它们是「同一件事的两端」，并排才看得出是一组 */
@@ -1065,7 +959,7 @@ input[type="file"]:hover::file-selector-button {
   flex: 1;
   width: auto;
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 /* 提示词 / 粘贴框。字号降一档：那是给人「复制」的机器文本，不是拿来读的内容 */
@@ -1082,25 +976,28 @@ input[type="file"]:hover::file-selector-button {
   margin-bottom: 12px;
 }
 
-/* 回填反馈、AI 的依据。灰字小注：看一眼就够，不跟档位胶囊抢注意力 */
+/* 回填反馈、AI 的依据。次要色小注：看一眼就够，不跟档位胶囊抢注意力 */
 .ai-note {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 
-/* AI 自己定的值（不在候选里）。前面缀一个实心圆点 ——
-   用 currentColor，未选中（白底灰字）和选中（近黑底白字）都看得见。
-   ⚠️ 不用虚线边框：选中态是近黑实底，虚线边框压在上面基本看不出来 */
-.tag-chip.is-loose::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: currentColor;
+.tag-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-/* ---------- 0.13：新增页的「下次这样拍」 ---------- */
+/* 压缩前后的体积对照 */
+.size-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 技巧列表（新增页可删 / 首页只读，同一套壳） ---------- */
 
 .tip-list {
   margin: 0;
@@ -1111,19 +1008,19 @@ input[type="file"]:hover::file-selector-button {
   gap: 8px;
 }
 
-/* 每条一块白底，和档位胶囊一样「可以碰」；删除键靠右独立成圆点，
+/* 每条一块纸白；删除键靠右独立成方块，
    避免整块变成点击区（点错了就删掉一条 AI 的提示） */
 .tip-list li {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 10px 11px;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.65;
   color: var(--text);
   background: var(--card);
+  border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  box-shadow: var(--shadow-1);
 }
 
 .tip-text {
@@ -1132,16 +1029,16 @@ input[type="file"]:hover::file-selector-button {
 
 .tip-x {
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   padding: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-family: inherit;
   line-height: 1;
   color: var(--muted);
   background: transparent;
   border: 1px solid var(--border-strong);
-  border-radius: 50%;
+  border-radius: var(--r-sm);
   cursor: pointer;
   transition: color var(--dur) var(--ease-io),
     border-color var(--dur) var(--ease-io), transform var(--dur-fast) var(--ease-io);
@@ -1166,51 +1063,79 @@ input[type="file"]:hover::file-selector-button {
   outline-offset: 2px;
 }
 
-/* ---------- 首页：探索区 ---------- */
+/* ---------- 通用 ---------- */
 
-.explore {
-  margin-bottom: 22px;
-  padding-bottom: 18px;
-  /* 分隔线用 --border（:root 里注明它就是这个用途）而不是加阴影：
-     这里要的是「一刀切开」，不是「浮起来」 */
-  border-bottom: 1px solid var(--border);
-  animation: rise var(--dur-slow) var(--ease) both;
-}
-
-.explore-title {
-  margin: 0 0 10px;
+.error {
+  margin: 0;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--muted);
-  letter-spacing: 0.02em;
+  color: var(--danger);
+  word-break: break-all;
 }
 
-/* 0.15 分面筛选：一组一个维度。组名 / 胶囊直接复用新增页的
-   .tag-group-name / .tag-row / .tag-chip —— 两页同一套视觉语言 */
-.explore-group + .explore-group {
-  margin-top: 12px;
+/* ---------- 无障碍：尊重系统的「减少动态效果」 ---------- */
+
+/* 压到 0.001ms 而不是删掉动画：保留了终态，元素不会停在透明或位移中途 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
-/* 筛选态提示。必须显眼到「一眼看出这不是全部」，否则会以为照片丢了 */
-.explore-active {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 12px 0 0;
-  font-size: 12px;
-  color: var(--muted);
-}
+/* ============================================================================
+ * Vant 主题对齐
+ * ============================================================================
+ *
+ * Vant 靠 CSS 变量做主题：改主色只动 --van-primary-color 一个变量，
+ * 不像 Element Plus 那样要同步改 8 档派生色阶。
+ * 这里把它的语义色全部指回 :root，全站配色仍只有一个来源。
+ *
+ * ⚠️ 前提：本文件必须在 Vant 的 index.css **之后**加载（见各 HTML 的 link 顺序），
+ * 否则这里的 :root 会先被定义、再被 Vant 的默认值盖掉。
+ *
+ * 组件只负责**控件**（输入、上传、看图、确认框），壳（卡片、顶栏、按钮）自己写；
+ * 圆角一律压成我们的 6–8px —— Vant 默认的满圆按钮在这套排印里太软。
+ * ========================================================================== */
 
-/* 0.14 删掉了这里的 .shot-tags / .shot-tags .tag-chip（卡片上的标签胶囊）：
-   档位改成一行只显值、不再是筛选入口，卡片上的点选整块退场。
-   筛选入口剩探索区一处；0.15 它会改成按维度分组的分面筛选。
-   要找回来，去 git 历史里翻 0.13 那版。 */
+:root {
+  --van-primary-color: var(--accent);
+  --van-danger-color: var(--danger);
+  --van-success-color: var(--accent);
+  --van-warning-color: var(--accent);
 
-/* 标签用量。压透明度而不是换成第三种灰 ——
-   DESIGN.md 明确说 --text 和 --muted 之间不再加层级 */
-.tag-count {
-  font-size: 12px;
-  opacity: 0.7;
+  --van-background: var(--bg);
+  --van-background-2: var(--card);
+  --van-background-3: var(--bg);
+
+  --van-text-color: var(--text);
+  --van-text-color-2: var(--muted);
+  --van-text-color-3: var(--muted);
+  --van-text-color-4: var(--muted);
+
+  --van-border-color: var(--border);
+  --van-radius-sm: var(--r-sm);
+  --van-radius-md: var(--r-md);
+  --van-radius-lg: var(--r-md);
+
+  --van-button-primary-background: var(--accent);
+  --van-button-primary-border-color: var(--accent);
+  --van-button-border-radius: var(--r-sm);
+
+  /* 表单字段：字号对齐正文，内边距交给我们控制 */
+  --van-cell-font-size: 15px;
+  --van-cell-vertical-padding: 12px;
+  --van-cell-horizontal-padding: 12px;
+  --van-field-placeholder-text-color: var(--muted);
+  --van-field-input-text-color: var(--text);
+
+  /* 上传：正方形，跟我们的圆角阶一致。
+     112px 而不是 Vant 默认的 80 —— 照片应用里它是主角，不能只有指甲盖大 */
+  --van-uploader-size: 112px;
+  --van-uploader-radius: var(--r-md);
 }
 
 /* Vant 的输入控件默认继承不了我们的字族，显式接上 */
@@ -1220,9 +1145,23 @@ input[type="file"]:hover::file-selector-button {
   font-family: inherit;
 }
 
+/* 主按钮：矩形 + 我们自己的高度，不用 Vant 的满圆 */
+.van-button {
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: var(--r-sm);
+}
+
+.van-button--normal {
+  height: 44px;
+}
+
+.van-button--block {
+  height: 46px;
+}
+
 /* 全局给裸 input/textarea 加的边框、白底、圆角会漏进 Vant 的行内控件，
-   在字段行里浮出一个「框中框」（登录页用户名那颗药丸就是它）。
-   行内控件回到素净状态，边框交给外层 van-cell-group 画 */
+   在字段行里浮出一个「框中框」。行内控件回到素净状态，边框交给外层 van-cell-group 画 */
 .van-field .van-field__control {
   padding: 0;
   background: transparent;
@@ -1239,9 +1178,10 @@ input[type="file"]:hover::file-selector-button {
   opacity: 1;
 }
 
-/* 卡片里的 Vant 组件不吃自己那套 16px 外边距，交给外层 .feed-wrap 控制 */
+/* 字段块：细节线描边 */
 .vant-block .van-cell-group--inset {
   margin: 0;
+  border: 1px solid var(--border);
   border-radius: var(--r-md);
   overflow: hidden;
 }
@@ -1255,11 +1195,11 @@ input[type="file"]:hover::file-selector-button {
 }
 
 .van-uploader__upload:hover {
-  background: rgba(22, 24, 28, 0.04);
+  background: var(--ink-04);
   border-color: var(--muted);
 }
 
 /* Vant 的图片预览遮罩给个不透明的深底，照片在白底上不会发灰 */
 .van-image-preview__overlay {
-  background: rgba(16, 18, 22, 0.94);
+  background: var(--dark-94);
 }

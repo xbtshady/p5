@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <!-- 2.0 PWA：装到桌面后自带颜色。色值 = style.css 里的 --bg；
        meta 标签吃不了 CSS 变量，所以换主题时这里要手动跟着改一次 -->
-  <meta name="theme-color" content="#d7dbe2" />
+  <meta name="theme-color" content="#fbfaf8" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <title>添加 · P5</title>
@@ -26,7 +26,7 @@
       <span class="topbar-actions"></span>
     </header>
 
-    <main class="feed-wrap">
+    <main class="form-wrap">
       <form class="form" @submit.prevent="submit">
         <div class="field">
           <span class="label">照片</span>
@@ -139,7 +139,6 @@
         <van-button
           type="primary"
           block
-          round
           native-type="submit"
           :disabled="busy || !file"
         >{{ busy ? statusText : '保存' }}</van-button>

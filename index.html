@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <!-- 2.0 PWA：装到桌面后自带颜色。色值 = style.css 里的 --bg；
        meta 标签吃不了 CSS 变量，所以换主题时这里要手动跟着改一次 -->
-  <meta name="theme-color" content="#d7dbe2" />
+  <meta name="theme-color" content="#fbfaf8" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <title>P5</title>
@@ -24,9 +24,23 @@
       <h1 class="topbar-brand">P5</h1>
       <nav class="topbar-actions">
         <a class="add-btn" href="create.html" aria-label="添加照片">＋</a>
-        <button class="text-btn" type="button" :disabled="busy" @click="logout">
-          {{ busy ? '退出中…' : '退出' }}
-        </button>
+
+        <!-- 0.17 顶栏减负：「退出」是低频动作，收进菜单，不常驻抢位置。
+             点空白处 / 按 Esc 收起（监听在 js/app.js） -->
+        <div class="menu-wrap">
+          <button
+            class="menu-btn"
+            type="button"
+            aria-label="更多"
+            :aria-expanded="menuOpen ? 'true' : 'false'"
+            @click="menuOpen = !menuOpen"
+          >⋯</button>
+          <div class="menu-panel" v-if="menuOpen">
+            <button class="menu-item" type="button" :disabled="busy" @click="logout">
+              {{ busy ? '退出中…' : '退出登录' }}
+            </button>
+          </div>
+        </div>
       </nav>
     </header>
 
@@ -36,13 +50,16 @@
       <!-- 探索：按维度分组的分面筛选（0.15）。
            这是「以后拍照前查参考」的主要入口 —— 想练中长焦就点「中长焦」，
            再叠一个「逆光」就是中长焦的逆光案例，比按时间往下翻有效得多。
-           维度内单选（点同维度的新值是替换，再点一次是取消），跨维度叠加。 -->
+           维度内单选（点同维度的新值是替换，再点一次是取消），跨维度叠加。
+
+           0.17：默认只展开前两组维度，否则这块面板会把照片挤出首屏；
+           有筛选项在生效时自动全展开（不然选中的那个可能藏在折起来的部分里，取消不掉） -->
       <section class="explore" v-if="facetGroups.length || activeTags.length">
         <h2 class="explore-title">探索</h2>
 
         <!-- 一组一个维度。组名 / 胶囊复用新增页的 .tag-group-name / .tag-row / .tag-chip：
              同一套视觉语言，两页看起来是一个系统 -->
-        <div class="explore-group" v-for="g in facetGroups" :key="g.name">
+        <div class="explore-group" v-for="g in visibleGroups" :key="g.name">
           <span class="tag-group-name">{{ g.name }}</span>
           <div class="tag-row">
             <button
@@ -57,6 +74,14 @@
             >{{ v.value }}<span class="tag-count">{{ v.count }}</span></button>
           </div>
         </div>
+
+        <button
+          v-if="facetGroups.length > exploreFold"
+          type="button"
+          class="explore-more"
+          :aria-expanded="exploreOpen ? 'true' : 'false'"
+          @click="exploreOpen = !exploreOpen"
+        >{{ exploreOpen ? '收起' : '全部 ' + facetGroups.length + ' 组维度' }}</button>
 
         <!-- 筛选态要能一眼看出来「现在不是全部」，否则会以为照片丢了。
              单项取消 = 再点那个已高亮的胶囊；这行只负责一眼可见 + 全部清除 -->

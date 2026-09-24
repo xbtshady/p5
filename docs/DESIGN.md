@@ -1,7 +1,7 @@
 # P5 前端设计文档
 
-版本：0.6
-最后更新：2026-09-17
+版本：0.18
+最后更新：2026-09-24
 
 本文档只写两件事：**改了会出事的硬规则**，和**踩过的坑**。
 技术选型见 [ARCHITECTURE.md](ARCHITECTURE.md)，产品范围见 [PRODUCT-1.0.md](PRODUCT-1.0.md)。
@@ -13,38 +13,57 @@
 所有颜色定义在 `css/style.css` 的 `:root`，**改主题只改这一处**。Vant 的语义色也指回这些变量。
 
 ```css
---bg: #d7dbe2;            /* 冷灰页面底（磨砂有没效果的变量之一，见 §2.1） */
---card: #ffffff;          /* 不透明白：输入框、降级卡面 */
---text: #16181c;          /* 正文 */
---muted: #5c616b;         /* 次要文字 */
---accent: #16181c;        /* 主色：近黑 */
---danger: #bc331c;        /* 破坏性动作 */
+:root {
+  --bg: #fbfaf8;              /* 暖白纸色页面底 */
+  --card: #ffffff;            /* 不透明白：输入框、卡片 */
+  --chip: #f1f0ed;            /* 未选中胶囊底 */
+  --skeleton: #f0efec;        /* 图片未解码占位 */
+  --text: #17181a;            /* 正文（纸白底 17.6:1） */
+  --muted: #6b6f76;           /* 次要文字（4.84:1） */
+  --accent: #17181a;          /* 主色：近黑 */
+  --accent-ink: #2c2f33;      /* 主色按下 / hover */
+  --danger: #b3382a;        /* 破坏性动作（5.73:1） */
+}
 ```
 
-**界面取中性色**，因为照片颜色不可控 —— 给界面染任何色调都会和照片打架。
+**界面只取中性色**，因为照片颜色不可控 —— 给界面染任何色调都会和照片打架。
 主色是近黑（不是彩色），所以全站唯一有颜色的东西就是照片。
 
-**两级文字色 + 三级字号**（15 / 13 / 12px）。不要在 `--text` 和 `--muted` 之间再加一档：
+**两级文字色 + 三级字号**（16 / 13 / 11px）。不要在 `--text` 和 `--muted` 之间再加一档：
 符合 WCAG 的第三级灰对比度只有 2.46:1，白底上读不清。
 
-**不许硬编码颜色。** 除 `:root` 外只能出现 `rgba(22, 24, 28, α)`（与 `--text` 同源）。
+**不许硬编码颜色。** 除 `:root` 外只能出现 `var(...)` 和 `currentColor`。
+只有两种字面量例外（ unavoidable）：`#ffffff`（主按钮 / 选中胶囊上的白字）、`rgba(255,255,255,0.72)`（选中标签里的计数）。
 改完跑一次：
 
 ```bash
 grep -n -E "#[0-9a-fA-F]{3,8}|rgba?\(" css/style.css | grep -v ":root"
 ```
 
-**对比度**：正文 ≥ 7:1，次要文字与按钮 ≥ 4.5:1。改配色后必须重算，不能靠眼睛判断 ——
-而且玻璃上的文字要按**最坏情况**算（见 §2.4）。
+**对比度**：正文 ≥ 7:1，次要文字与按钮 ≥ 4.5:1。当前（纸白底）正文 17.6:1、次要文字 4.84:1、危险色 5.73:1。
+改配色后必须重算，不能靠眼睛判断。
 
 ---
 
-## 二、磨砂
+## 二、层次分隔：留白 + 细节线，不是磨砂和阴影
 
-只有三处：登录卡 `.card`、照片卡 `.shot`、顶栏 `.topbar`。**不要扩大** ——
-系统弹窗需要绝对可读性，模糊背后内容弊大于利。
+0.16 起把 0.6 那套磨砂玻璃（`backdrop-filter`、`--glass`、光斑层、大阴影）整体作废。
+现在层次只靠三样东西：
 
-### 2.1 背后必须有东西可透，且那东西要「看得见」
+1. **页面底是暖白纸色**（`--bg: #fbfaf8`），卡片用纯白（`--card: #ffffff`），照片压在纸白上就是主角
+2. **细节线**（`--border: rgba(23,24,26,0.1)`）—— 输入框轮廓、展开区分隔、顶栏滚动后下边界
+3. **字号 / 字重 / 字距**拉开层级 —— 标题 16px / 500、档位行 13px、日期计数 11px；小节标签大字距小字号
+
+### 2.1 列表页去 body padding
+
+`.page-list` 的 `body` 不再给 `padding: 24px`，而是 `padding: 0; align-items: flex-start;`。
+照片要**全出血**贴到屏幕边，左右内边距由需要留白的文字块自己管：
+
+- `.explore { margin: 0 var(--gutter) 22px; }`
+- `.shot-body { padding: 12px var(--gutter) 0; }`
+- `.feed-wrap` 本身 `padding: 0`
+
+其它页（create / login）仍保留 body padding，用来把表单 / 登录卡居中。
 
 **这是磨砂最容易做错的地方。** 毛玻璃只是模糊它背后的内容；背后若是一片纯色或一层光滑渐变，
 模糊完还是那个样子。
@@ -68,26 +87,27 @@ grep -n -E "#[0-9a-fA-F]{3,8}|rgba?\(" css/style.css | grep -v ":root"
 跟着内容滚；`body` 本身在列表页也是随内容增长的高块，会露出没铺到的空白。
 所以底色给 `html`（`background: var(--bg)`），`body` 保持透明。
 
-### 2.2 必须配降级
+### 2.2 圆角降一档
 
-不支持 `backdrop-filter` 的浏览器上，半透明白**仍然生效**，结果是一张没模糊的半透明卡压在光斑上，字看不清。
-所以文件末尾有 `@supports not (...)` 把玻璃退回实色（`.card`/`.shot` → `--card`，`.topbar` → `--bg`）。
+胶囊和按钮从满圆改成小圆角矩形（`--r-sm: 6px`、`--r-md: 8px`、`--r-lg: 10px`）。
+大圆角和磨砂一起退场 —— 矩形感更「工具 / 手册」。
 
-### 2.3 边界靠阴影不靠描边
+### 2.3 阴影只剩一处
 
-磨砂表面没有轮廓感，所以阴影必须用 `--shadow-3`（大而散），不能用 `--shadow-1`；
-描边用**半透明白**（在玻璃边缘勾一道高光），不能用灰；圆角必须够大（16–24px）。
+**全站唯一一处阴影**：顶栏下拉菜单 `.menu-panel`。
+它必须浮起来才读得出「在别的层」，所以保留 `box-shadow: 0 8px 24px rgba(23,24,26,0.1)`。
+其它任何卡片、顶栏、按钮都不再加阴影；用 1px 细节线或纯留白分界。
 
-### 2.4 ⚠️ 调整底色/透度之后必须重算对比度
+### 2.4 不要再写 `backdrop-filter`
 
-文字压在玻璃上，实际底色 = 玻璃色叠加背景色。**背景压暗或透度调高，文字对比度都会掉。**
+改版后若出现 `backdrop-filter` 或 `filter: blur`，说明旧的磨砂习惯回来了，直接删掉。
+验证命令：
 
-0.6 改底色时踩到两次：`--muted` 从 4.6:1 掉到 4.09:1、`--danger` 从 4.6:1 掉到 3.64:1，
-都不达标。修法是各压暗一档（`--muted` → `#5c616b`，`--danger` → `#bc331c`）。
+```bash
+grep -n "backdrop-filter\|filter: blur\|--glass\|html::before" css/style.css
+```
 
-要按**最坏情况**算（光斑最暗处 + 玻璃叠加后的底色），不能只算白底。
-另外 `--danger` 在 `js/app.js` 的 `confirmButtonColor` 里有一份字面量副本
-（JS 读不到 CSS 变量的默认值），改色时两处都要动。
+应当 0 命中。
 
 ---
 
@@ -98,10 +118,10 @@ grep -n -E "#[0-9a-fA-F]{3,8}|rgba?\(" css/style.css | grep -v ":root"
 顶栏 `sticky` 会盖住内容区开头，`.feed-wrap` 必须补上：
 
 ```css
-padding-top: calc(61px + env(safe-area-inset-top, 0px));
+padding-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 14px);
 ```
 
-**61px 不要手算** —— 它是顶栏 padding(14+14) + 内容高(约 30) + border(1)，改顶栏就得重对。
+`var(--topbar-h)` 现在是 56px，不要再写死数字；`.feed-wrap` 和 `.topbar` 读同一个变量。
 漏了的症状：第一张照片被顶栏盖掉上沿。
 
 ### 3.2 图片上的浮层控件不能用白色圆底
@@ -113,9 +133,12 @@ padding-top: calc(61px + env(safe-area-inset-top, 0px));
 三个宽度（320 / 360 / 430），指标：`scrollWidth - innerWidth === 0`（无横向溢出）、
 顶栏高度和 61 对得上、删除按钮在卡片内部。
 
-**无头 Chrome 的坑**：`--window-size` 对 `--headless=new` 的页面宽度无效（恒为 500px 左右）。
-要测真窄屏，把页面套进宽度可控的 `<iframe>`；且 `--dump-dom` **只导顶层文档、不进 iframe** ——
-让 iframe 里的脚本把结果写到父页面的 `document.title` 上再 grep。
+**无头 Chrome 的坑**：
+
+- `--headless=new` 下 `--window-size` 对页面宽度无效（恒约 500px），但 `--headless=old` 尊重 `--window-size`。
+- 本沙箱把 Chrome 的 `--dump-dom` / `--enable-logging=stderr` 输出全吃掉，所以没法用 DOM 回传或 console 读数。
+  做法是：**iframe 里量，父页把结果渲染成文本，再截整张图读回来**。
+- iframe 不要放到屏幕外：Chrome 会优化掉离屏 iframe 的渲染，导致量到的元素数量不全。
 
 ---
 
@@ -172,8 +195,19 @@ padding-top: calc(61px + env(safe-area-inset-top, 0px));
 ## 六、改样式的流程
 
 1. 只改 `:root` —— 要改颜色先试变量，动不了再改具体规则
-2. 跑一次第一条 `grep`，确认没有新硬编码
-3. 无头 Chrome 量 320 / 360 / 430 三档
-4. **实际截图看一眼** —— 只量数值会漏掉「卡片全透明」这类事
-5. 大括号配平：`python -c "s=open('css/style.css',encoding='utf-8').read(); print(s.count('{'), s.count('}'))"`
-6. 临时预览页用完就删，`git status --short` 必须干净
+2. 检查没有磨砂痕迹：
+   ```bash
+   grep -n "backdrop-filter\|filter: blur\|--glass\|html::before" css/style.css
+   ```
+   应当 0 命中。
+3. 检查没有新硬编码颜色：
+   ```bash
+   grep -n -E "#[0-9a-fA-F]{3,8}|rgba?\(" css/style.css | grep -v ":root"
+   ```
+   只保留 `#ffffff` / `rgba(255,255,255,0.72)` 两处例外。
+4. 无头 Chrome 量 320 / 360 / 430 三档：指标是 `scrollWidth - clientWidth === 0`
+   （无横向溢出）、顶栏高 56px、第一张照片从顶栏下方开始。
+   做法见 §3.3：用 iframe 钉宽度，父页汇总结果并截图读回。
+5. **实际截图看一眼** —— 只量数值会漏掉「卡片全透明」这类事
+6. 大括号配平：`python -c "s=open('css/style.css',encoding='utf-8').read(); print(s.count('{'), s.count('}'))"`
+7. 临时预览页用完就删，`git status --short` 必须干净

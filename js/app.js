@@ -1,5 +1,5 @@
 /**
- * 首页（照片列表）逻辑 —— 0.15 版（分面筛选）
+ * 首页（照片列表）逻辑 —— 0.18 版（分面筛选 + 顶栏菜单 + 探索区折叠）
  *
  * 流程：
  *   1. 挂载前先查会话：没登录就跳登录页
@@ -9,6 +9,7 @@
  *   5. 卡片右上角可删除：二次确认后先删行、再删桶里的文件
  *   6. 点档位筛选（维度内单选、跨维度叠加），再点一次取消
  *   7. 卡片默认只露一行档位值 + 技巧条数，点日期那行原地展开详情（0.14）
+ *   8. 顶栏「⋯」收「退出」；探索区默认只展开两组维度（0.17）
  *
  * 关于「刷新时闪一下」：沿用 0.1 定下的约定 —— 先把要显示的内容全部确定好，
  * 再 mount Vue。所以照片列表、临时链接、档位用量都在 mount 之前就备齐了。
@@ -39,6 +40,10 @@
   // 维度字典（js/facets.js）。解码 / 判断基础维度 / 取值域顺序都读它一处，
   // 页面里不另抄一份维度表
   var Facets = window.P5Facets || {};
+
+  // 探索区折叠时露出几组维度（0.17）。两组够看出「这里能筛什么」，
+  // 又不至于把第一张照片挤出首屏
+  var EXPLORE_FOLD = 2;
 
   // Vant 的函数式组件挂在全局 vant 上（不是 Vue 插件的一部分）
   var vantLib = window.vant || {};
@@ -144,7 +149,7 @@
         var busy = ref(false);
         var err = ref(error);
 
-        // 顶栏滚出内容时才浮出阴影（class 挂在 .topbar 上，样式在 style.css）。
+        // 顶栏滚动阴影（class 挂在 .topbar 上，样式在 style.css）。
         // passive 监听 + 只在跨过阈值时赋值，避免每滚一帧都触发一次渲染
         var scrolled = ref(false);
 
@@ -155,6 +160,30 @@
 
         window.addEventListener("scroll", onScroll, { passive: true });
         onScroll();
+
+        // 顶栏「⋯」菜单（0.17）。点别处或按 Esc 收起 —— 只靠再点一次按钮会留下
+        // 一个悬空的面板，在手机上是明显的「没关掉」
+        var menuOpen = ref(false);
+
+        function closeMenu() {
+          menuOpen.value = false;
+        }
+
+        function onDocClick(e) {
+          if (!menuOpen.value) return;
+          if (e.target.closest && e.target.closest(".menu-wrap")) return;
+          closeMenu();
+        }
+
+        function onKeydown(e) {
+          if (e.key === "Escape") closeMenu();
+        }
+
+        document.addEventListener("click", onDocClick);
+        document.addEventListener("keydown", onKeydown);
+
+        // 探索区折叠状态。默认收起（只露 EXPLORE_FOLD 组）
+        var exploreOpen = ref(false);
 
         async function logout() {
           if (busy.value) return;
@@ -266,6 +295,18 @@
         function isActive(tag) {
           return activeTags.value.indexOf(tag) >= 0;
         }
+
+        /**
+         * 实际渲染的维度组（0.17 折叠）。
+         *
+         * **有筛选项在生效时一律全展开** —— 否则选中项可能落在折起来的那几组里，
+         * 界面上没有地方能取消它，只能点「清除」把全部筛掉。
+         */
+        var visibleGroups = computed(function () {
+          var all = facetGroups.value;
+          if (exploreOpen.value || activeTags.value.length) return all;
+          return all.slice(0, EXPLORE_FOLD);
+        });
 
         /** 筛选态那行的文字：只显示值，和卡片一个口径 */
         var activeText = computed(function () {
@@ -392,9 +433,13 @@
         return {
           photos: list,
           facetGroups: facetGroups,
+          visibleGroups: visibleGroups,
+          exploreFold: EXPLORE_FOLD,
+          exploreOpen: exploreOpen,
           activeTags: activeTags,
           activeText: activeText,
           isActive: isActive,
+          menuOpen: menuOpen,
           busy: busy,
           error: err,
           scrolled: scrolled,
