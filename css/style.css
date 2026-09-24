@@ -129,12 +129,18 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 列表页：照片要全出血，所以 body 不再给居中留白；
-   文字块的左右留白由 .filter-bar / .shot-body 自己管。 */
+/* 列表页 / 新增页：内容要铺满视口，所以**退出 flex 布局**。
+   ⚠️ 这里必须是 display: block，不能只改 align-items / justify-content ——
+   body 是 flex 容器时 #app 就是它的 flex item，而 flex-grow 默认 0，
+   于是 #app 只按内容的 max-content 宽（fit-content），**不会撑满视口**。
+   有照片时卡片把内容顶到 560，看不出问题；一张照片都没有时内容只有
+   「P5 + 三个键」，#app 缩到 264px，顶栏的 space-between 没有多余空间可分，
+   三个动作键就贴在品牌右边 —— 整页像缩在左上角。
+   （这也是 REDESIGN §十二 里 P1.7 那个「#app 被 min-width: auto 锁住」的同一个根，
+   退出 flex 之后那条路也顺了。） */
 body.page-list {
+  display: block;
   padding: 0;
-  align-items: flex-start;
-  justify-content: flex-start;
 }
 
 /* ---------- 入场动效 ---------- */
