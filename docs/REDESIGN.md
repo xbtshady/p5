@@ -314,12 +314,264 @@
 
 ---
 
-## 九、参考站点（保持）
+## 十、手机端专项优化（可叠加在 0.19 上）
 
-视觉方向仍按 0.16 定下的方向走：
+0.18 已经做了窄屏适配和无横向溢出，但对着代码和渲染再检查，还有一批**只针对手机交互、加载、渲染**的问题。这些问题在桌面端不明显，在手机上会真实影响使用。
 
-- **note.com** —— 信息流与排版层次；
-- **器材规格页** —— 「标签 / 值」秩序；
-- **Takram** —— 留白与字号层级。
+下面按优先级分 P0 / P1 / P2，每类都给出**代码里的具体位置和修法**。后台（`cloudbase.js`、数据表）都不动；需要改动前端调用方式的会单独说明。
 
-这次重构不是再换风格，而是把同一个方向的信息结构做扎实。
+### P0 — 手机上会实际出问题的
+
+#### 1. iOS 聚焦输入框时整页放大
+
+**问题**：`css/style.css` 里 `--van-cell-font-size: 15px`（Vant 变量区 1129 行），`van-field` 的输入框会继承这个字号。iOS Safari 只要 input/select/textarea 的字号小于 16px，聚焦时就会自动放大整页，用户必须手动缩回。
+
+**修法**：
+
+```css
+:root {
+  --van-cell-font-size: 16px; /* 原来是 15px */
+}
+
+.van-field .van-field__control {
+  font-size: 16px; /* 兜底，确保任何情况下都不小于 16px */
+}
+```
+
+> 这是纯 CSS 改一行，不影响 Vant 其它组件。
+
+#### 2. 触摸设备上 hover 会「粘住」
+
+**问题**：`css/style.css` 里大量 `:hover` 规则没有包在 `@media (hover: hover)` 里面。手指点一下后，那个灰底/变色会一直挂着，直到点别处。
+
+**涉及规则**（实测会粘住的）：
+
+- `.btn:hover` / `.btn.ghost:hover` / `.text-btn:hover`
+- `.add-btn:hover` / `.menu-btn:hover` / `.menu-item:hover`
+- `.pw-toggle:hover` / `.tip-x:hover`
+- `.explore-more:hover` / `.van-uploader__upload:hover`
+- `input[type="file"]:hover::file-selector-button`
+
+**修法**：
+
+把这些 hover 规则改成仅在支持 hover 的媒介生效：
+
+```css
+@media (hover: hover) {
+  .btn:hover:not(:disabled) { ... }
+  .text-btn:hover:not(:disabled) { ... }
+  /* 其它同理 */
+}
+
+.btn:active:not(:disabled) { ... }   /* 触摸时保留按下反馈 */
+```
+
+> 0.18 里已经有一部分（`.tag-chip`、` .shot-del`、` .shot-toggle`）包了 `@media (hover: hover)`，说明思路对了，只是没扫全。
+
+#### 3. 点击目标普遍小于 44×44
+
+手机上拇指点按的最小舒适区是 44×44 CSS px。当前多处实际可点区域不够：
+
+| 元素 | 当前尺寸 | 问题 |
+|------|----------|------|
+| `.add-btn` / `.menu-btn` | 30×30 | 顶栏两个核心入口太小 |
+| `.shot-del` | 28×28 | 删除照片容易误触 |
+| `.shot-toggle` | 约 24×90 | 展开卡片条数按钮太小 |
+| `.tip-x` | 22×22 | 删除一条 AI 技巧几乎点不中 |
+| `.tag-chip` | 约 29×60 | 胶囊按钮高度不够 |
+| `.pw-toggle` | 34×34 | 密码可见切换偏小 |
+
+**修法**（不破坏现有视觉，优先扩大热区）：
+
+```css
+/* 顶栏动作按钮：视觉保持 30×30，热区扩到 44×44 */
+.add-btn,
+.menu-btn {
+  position: relative;
+}
+.add-btn::after,
+.menu-btn::after {
+  content: "";
+  position: absolute;
+  inset: -7px; /* 30 + 7 + 7 = 44 */
+}
+
+/* 展开整行可点 */
+.shot-meta {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+/* 删除小 × 扩大到 40×40 */
+.tip-x {
+  width: 28px;
+  height: 28px;
+  position: relative;
+}
+.tip-x::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+```
+
+> 0.19 的卡片重构方案已经把 `.shot-toggle` 改成整行触发，这一条会顺带解决。
+
+#### 4. 底部安全区没留
+
+**问题**：目前只在 `topbar` 和 `.feed-wrap` / `.form-wrap` 顶部用了 `env(safe-area-inset-top)`，底部完全没有处理。iPhone 底部 home indicator 会遮住保存按钮。
+
+**修法**：
+
+```css
+.form-wrap {
+  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+}
+
+/* 0.19 要做的底部固定保存条 */
+.sticky-save {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+```
+
+横屏时还有刘海左右边，也建议补上：
+
+```css
+body {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+```
+
+> 但注意：首页 `body.page-list { padding: 0 }` 是为了照片全出血，左右安全区需要单独处理成「照片出血，但文字块避开刘海」。
+
+#### 5. 长文本可能撑破卡片
+
+**问题**：`.shot-title` 和 `.shot-note` 没有 `overflow-wrap` / `word-break`。如果标题是一段长英文或 URL，会横向溢出。
+
+**修法**：
+
+```css
+.shot-title,
+.shot-note {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+```
+
+#### 6. 首页一次性取全部照片
+
+**问题**：`js/cloudbase.js` 的 `listPhotos()` 没有 `limit`，`signPhotoUrls()` 用 `Promise.all` 对所有路径同时签名。照片攒到几十张以后，手机上打开首页会同时发起几十个签名请求 + 图片请求，慢且费流量。
+
+**修法**（**只改前端调用方式，不动后台**）：
+
+- 在 `cloudbase.js` 的 `listPhotos(options)` 里加一个可选 `limit` 参数：
+
+```js
+async function listPhotos(options) {
+  ...
+  if (options && options.limit) {
+    query = query.range(0, options.limit - 1);
+  }
+  ...
+}
+```
+
+- `app.js` 启动时先取最近 30 条，滚动到底再取下一批 30 条（或加一个「加载更多」按钮）。
+- 签名也分批：不要一次签 200 个 URL，只签当前要显示的那批。
+
+> `postgREST` 的 `.range(from, to)` 已支持；接口签名保持不变，不传 `limit` 就是全部，向后兼容。
+
+### P1 — 明显提升手机体验
+
+#### 7. 滚动性能：`content-visibility` 跳过屏幕外卡片
+
+**问题**：feed 一长串 `.shot` 都在首屏外参与布局，滚到后面会卡。
+
+**修法**：
+
+```css
+.shot {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 520px;
+}
+```
+
+> 注意和 `.shot` 的入场动画兼容：入场动画只在元素进入视口时跑一次，不影响。
+
+#### 8. 图片加载导致布局跳动（CLS）
+
+**问题**：`.shot img` 没有 `width/height` 或 `aspect-ratio`，图片加载前没有占位，加载完会把下方内容顶下去。
+
+**修法**：
+
+- 简单兜底：给 `.shot img` 一个 `min-height: 240px` + 骨架色；
+- 更干净的解法是上传时记录宽高比（要加列 = 动后台），所以 0.19 先用 `content-visibility` 兜底，不追完美。
+
+#### 9. CDN 依赖影响弱网首屏
+
+**问题**：首页要等 4 个远端 CDN 资源（Vue / Vant CSS / Vant JS / CloudBase SDK）才能渲染。手机弱网下会卡很久。
+
+**修法**：把这几个库 vendor 进仓库（`vendor/` 目录），`deploy.sh` 一起上传，从自己的域名加载：
+
+- 少 3 次 DNS + TLS 握手；
+- 不依赖 jsdelivr / static.cloudbase.net 可达性；
+- 不构建，只是把 CDN 下载的文件放进仓库。
+
+> 注意：Vant 的 CSS 必须在 `css/style.css` 之前加载这个顺序要保持。
+
+#### 10. Android 点击高亮
+
+**问题**：Android WebView 上点自定义按钮会出现默认的蓝色/灰色高亮块。
+
+**修法**：
+
+```css
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+```
+
+同时保留自己的 `:active` 反馈，让用户知道按到了。
+
+#### 11. 正文 13px 偏小
+
+`.shot-note` 和 `.shot-facets` 当前 13px，手机一臂距离看略吃力。0.19 的排印规范已经把正文提到 14px，这里顺带解决。
+
+### P2 — 可以做、但需要你先拍板
+
+#### 12. PWA 图标与 manifest
+
+仓库现在**没有 `manifest.json`、没有 `icons/`**，虽然 `index.html` 写了 `apple-mobile-web-app-capable=yes`，但添加到主屏后是网页截图，不是图标。
+
+修法很小：加一个 `manifest.json` + 192×192 / 512×512 图标，就能全屏无地址栏打开。PRODUCT 把图标放在 1.0，其实现在就能做。
+
+#### 13. 手机上加载原图太费流量
+
+上传时压到长边 1600，但手机 feed 看的是 390px 宽缩略图，下载 1600 像素浪费流量。
+
+修法有两条路，都需要先确认：
+
+1. **动后台**：上传时再存一份缩略图 → 不符合「后台不用改」；
+2. **CloudBase 图片处理参数**：如果托管桶是 COS 后端，可以尝试在签名 URL 后面拼 `?imageMogr2/thumbnail/800x` 这类参数。需要先验证是否支持，不支持就不能用。
+
+所以这一条列为 P2，不急着做。
+
+#### 14. 深色模式
+
+手机上夜里看白底刺眼。但 0.16 你已经否过「纯白 / 暖米白 / 深色」三个整体方案中的深色，所以默认不做。如果只是想跟随系统 `prefers-color-scheme`，那是另一件事，可以单独谈。
+
+---
+
+## 十一、这些优化怎么接进 0.19
+
+上面这些优化和 `docs/REDESIGN.md` 里 0.19a / 0.19b / 0.19c 不冲突，可以这样接：
+
+| 原版本 | 原内容 | 叠加上去 |
+|--------|--------|----------|
+| 0.19a | 首页探索抽屉 + 顶栏按钮对比度 | 同时修 P0.1、P0.2、P0.3、P0.5、P0.6、P1.10、P1.11 |
+| 0.19b | 卡片索引卡结构 + 整行展开 | 同时修 P0.3（展开区）、P1.7、P1.8 |
+| 0.19c | 新增页折叠分组 + 底部保存条 | 同时修 P0.1、P0.2、P0.4、P1.11、P2.12 |
+
+P2.13 和 P2.14 单独决策，不在 0.19 默认做。
