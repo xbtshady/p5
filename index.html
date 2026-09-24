@@ -157,6 +157,9 @@
           />
           <div v-else class="shot-fallback">图片暂时取不到</div>
 
+          <!-- 信息区（0.19b 索引卡）：照片 / 标题+档位 / 可点整行 / 展开详情。
+               四段靠 1px 细节线 + 留白分开，**不加白底盒子** ——
+               0.16 已经把「卡片盒子」那套去掉了（层次靠留白和细节线），别加回来 -->
           <div class="shot-body">
             <p class="shot-title" v-if="p.title">{{ p.title }}</p>
 
@@ -167,21 +170,26 @@
               {{ p.facetValues.join(' · ') }}
             </p>
 
-            <!-- 日期 + 技巧条数。点这一行原地展开描述 / 全部档位 / 技巧，
-                 不跳详情页（PRODUCT §3.3）。没东西可展开时只有日期，不渲染按钮 -->
-            <div class="shot-meta">
-              <p class="shot-date">{{ p.date }}</p>
-              <button
-                v-if="p.expandable"
-                type="button"
-                class="shot-toggle"
-                :aria-expanded="p.open ? 'true' : 'false'"
-                @click="toggle(p)"
-              >{{ p.tips.length ? p.tips.length + ' 条技巧' : (p.open ? '收起' : '展开') }}<span
-                  class="shot-caret"
-                  :class="{ 'is-open': p.open }"
-                >▾</span></button>
-            </div>
+            <!-- 展开触发区（0.19b）：**整行可点**。
+                 0.14–0.19a 时能点的只有右侧那个 11px 的小按钮，单手拇指基本点不中；
+                 现在整行都是热区、高度够 40，右侧的条数/收起只是这一行的提示文字。
+                 没东西可展开时退化成一行静态日期，不渲染按钮 -->
+            <button
+              v-if="p.expandable"
+              type="button"
+              class="shot-meta"
+              :aria-expanded="p.open ? 'true' : 'false'"
+              @click="toggle(p)"
+            >
+              <span class="shot-date">{{ p.date }}</span>
+              <span class="shot-cue">
+                {{ p.tips.length ? p.tips.length + ' 条技巧' : (p.open ? '收起' : '展开') }}
+                <span class="shot-caret" :class="{ 'is-open': p.open }">▾</span>
+              </span>
+            </button>
+            <p class="shot-meta is-plain" v-else>
+              <span class="shot-date">{{ p.date }}</span>
+            </p>
 
             <!-- 展开区：描述 + 全部档位（折行）+ 技巧。顺序照 PRODUCT §3.1 -->
             <div class="shot-more" v-if="p.open">

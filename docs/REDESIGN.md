@@ -11,7 +11,7 @@
 | 版本 | 内容 | 文件 | 状态 |
 |------|------|------|------|
 | 0.19a | 首页探索区改抽屉；顶栏按钮加对比；分页；手机端 P0 修复（iOS 输入字号、hover 媒体查询、热区、长文本换行、tap-highlight） | `index.html`, `js/app.js`, `js/cloudbase.js`, `css/style.css` | **已完成** |
-| 0.19b | 卡片改成索引卡结构；展开区整行可点；卡片间距收紧 | `index.html`, `js/app.js`, `css/style.css` | 未开始 |
+| 0.19b | 卡片改成索引卡结构；展开区整行可点；卡片间距收紧 | `index.html`, `js/app.js`, `css/style.css` | **已完成** |
 | 0.19c | 新增页折叠分组 + 单选维度用弹层 + 底部固定保存条 | `create.html`, `js/create.js`, `css/style.css` | 未开始 |
 
 ---
@@ -577,7 +577,39 @@ async function listPhotos(options) {
 | 原版本 | 原内容 | 叠加上去 |
 |--------|--------|----------|
 | 0.19a | 首页探索抽屉 + 顶栏按钮对比度 + 分页 | 已完成。P0.1、P0.2、P0.3、P0.5、P0.6、P1.10 一并落地 |
-| 0.19b | 卡片索引卡结构 + 整行展开 + 卡片间距收紧 | 同时修 P0.3（展开区）、P1.7、P1.8 |
+| 0.19b | 卡片索引卡结构 + 整行展开 + 卡片间距收紧 | 同时修 P0.3（展开区）。P1.7/P1.8 在 0.19b 试过又撤回：见 §十二 |
 | 0.19c | 新增页折叠分组 + 单选维度弹层 + 底部保存条 | 同时修 P0.1、P0.2、P0.4、P1.11、P2.12 |
 
 P2.13 和 P2.14 单独决策，不在 0.19 默认做。
+
+## 十二、P1.7/P1.8 在 0.19b 撤回的记录
+
+0.19b 原本想把 **P1.7（`content-visibility: auto` 跳过屏幕外卡片）** 顺带做掉，
+现场写了：
+
+```css
+.shot {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 560px;
+}
+```
+
+无头 Chrome 立刻发现 **320–560px 视口横向溢出 75px**。根因链：
+
+1. `contain-intrinsic-size: auto 560px` 在语法上是一个轴的取值（`auto <length>`），
+   会被同时套到**宽高两轴**；离屏卡片按 560px 宽占位。
+2. `.feed` 是 column flex，被跳过的卡片作为 flex item 把 min-content 顶到 560px。
+3. `body { display: flex }` 让 `#app` 成了 flex item；`min-width: auto` 把它锁住，
+   于是页面宽度被钉在 560px，无法收缩到视口宽度（如 415px）。
+
+补救方向试过两个：
+
+- 把 `contain-intrinsic-size` 改成两轴写法 `auto 0 auto 560px`，
+  再补上 `body > * { min-width: 0 }`——结果页面虽然不再溢出，却会在 430px 视口
+  缩到 189px 宽（因为 `flex-grow: 0` 不让它长回来）。
+- 让 `#app` 强制 `width: 100%` 可以长回来，但会改变桌面顶栏宽度（超出 0.19b 范围）。
+
+结论：**0.19b 不带 P1.7/P1.8**。卡片结构落地后，这两块要再起一版，
+先把 `body/#app` 的 flex-item 尺寸问题理顺（或者干脆把 flex 布局的 scope
+缩到只有登录页），再上 `content-visibility`。`css/style.css` 里 `.shot` 的注释
+也留了同一句话，防止以后照着旧版 REDESIGN 直接抄。

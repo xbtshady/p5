@@ -64,6 +64,9 @@
   /* 可点区域最小边长。iOS HIG 建议 44，但顶栏那三个键只隔 10px，
      44 的放大热区会互相盖住（后画的抢走重叠区）—— 40 是这里的上限。 */
   --touch-min: 40px;
+  /* 卡片之间。0.16 是 38，0.19b 收到 28 —— 照片下面已经有细节线分段，
+     不需要那么大的空隙，「一条接一条」的手册节奏是这个值撑出来的 */
+  --card-gap: 28px;
 }
 
 * {
@@ -680,7 +683,7 @@ input[type="file"]::file-selector-button {
   padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
-  gap: 38px;
+  gap: var(--card-gap);
 }
 
 /* 「加载更多」（0.19a 起首页分页）：一页 30 条，滚到底再要下一批 */
@@ -702,6 +705,14 @@ input[type="file"]::file-selector-button {
      表现为「卡片全透明」而控制台干净。
      单独写一条属性，最坏只丢延时不丢动画。 */
   animation-delay: calc(var(--i, 0) * 50ms);
+  /* ⚠️ 这里曾经加过 P1.7 的 `content-visibility: auto`（跳掉屏幕外卡片、省渲染），
+     0.19b 实测后**撤掉了** —— 记下原因，别照着 REDESIGN 再抄一遍：
+     `.shot` 是 `.feed`（column flex）的 flex item，被跳过的卡片会用
+     `contain-intrinsic-size` 当占位尺寸；而 `body` 是 flex 容器、`#app` 是它的
+     flex item（`flex-grow: 0` + `min-width: auto`），占位尺寸会把 min-content
+     顶到 560px，于是页面要么横向溢出 75px（432px 屏），要么缩成 189px 宽（不 grow）。
+     要真上 CV，得先把「app 外壳的 flex item 尺寸」这条路理顺（宽度定死 + 允许收缩），
+     那是改布局骨架，不塞进 0.19b。 */
 }
 
 .shot img {
@@ -718,14 +729,16 @@ input[type="file"]::file-selector-button {
 }
 
 /* 删除按钮：压在照片右上角。用半透明深底 + 白色 × 而不是白色圆钮 ——
-   照片颜色不可控，白底在浅色照片上会直接消失 */
+   照片颜色不可控，白底在浅色照片上会直接消失。
+   0.19b 从 28 提到 32：热区早在 0.19a 就够 40 了，但**看不见的热区等于不存在**，
+   尺寸得跟上才找得到 */
 .shot-del {
   position: absolute;
   top: 10px;
   right: 10px;
   z-index: 2;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -742,12 +755,12 @@ input[type="file"]::file-selector-button {
     transform var(--dur-fast) var(--ease-io), opacity var(--dur) var(--ease-io);
 }
 
-/* 热区：28 + 6 + 6 = 40。它压在照片右上角，误触会弹确认框，
+/* 热区：32 + 4 + 4 = 40。它压在照片右上角，误触会弹确认框，
    所以这一步的必要性比别的按钮更高 */
 .shot-del::after {
   content: "";
   position: absolute;
-  inset: -6px;
+  inset: -4px;
 }
 
 /* hover 只在真有鼠标的设备上生效（触屏上 hover 会「粘住」不消失） */
@@ -781,8 +794,14 @@ input[type="file"]::file-selector-button {
   background: var(--skeleton);
 }
 
+/* 信息区（0.19b）：和照片之间压一条 1px 细节线 ——
+   这条线让每条案例读起来是「一条独立的条目」，而不是「一张图下面跟了一段字」，
+   正是缺的那点手册秩序感。
+   注意是**全出血**的线（.shot-body 没有左右内边距，留白由它内部各块自己加）。
+   没有白底、没有圆角、没有阴影：0.16 定的规矩（层次靠留白 + 细节线）不破 */
 .shot-body {
   padding: 12px var(--gutter) 0;
+  border-top: 1px solid var(--border);
 }
 
 .shot-title {
@@ -796,17 +815,21 @@ input[type="file"]::file-selector-button {
   overflow-wrap: anywhere;
 }
 
+/* 描述（只在展开区里出现）。0.19b 从 13 提到 14 —— 手机一臂距离下 13 偏吃力（P1.11） */
 .shot-note {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.65;
   color: var(--muted);
   white-space: pre-wrap;
 }
 
 /* 档位行（收起态）：只显值、单行、超长省略。
-   次要色：它和日期一样是元信息，不跟照片和标题抢注意力 */
+   ⚠️ 字号刻意停在 13 这一档（元信息 12 / 正文 14 之间）：它是这本手册最该被看清的
+   数据，压到 12 手机上偏小；但提到 14 就会和 16px 的标题并列、抢掉标题的位置。
+   13 是这一行该在的地方 —— P1.11 里把它和 `.shot-note` 并列为「正文」是写错了，
+   这里只把 note 提到 14 */
 .shot-facets {
   margin: 6px 0 0;
   font-size: 13px;
@@ -822,68 +845,74 @@ input[type="file"]::file-selector-button {
   overflow: visible;
 }
 
-/* 日期 + 技巧条数同一行：左日期、右条数 */
+/* 展开触发区（0.19b）：**整行可点**。
+   0.14–0.19a 能点的只有右侧那个 11px 的小按钮，单手拇指基本点不中；
+   现在整行都是热区、高度够 --touch-min，右侧那行字只是提示，不是独立的按钮。
+   没东西可展开时模板渲染成 `p.shot-meta.is-plain`，那一支退化成静态行 */
 .shot-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 8px;
-}
-
-/* 日期：小字号 + 等宽数字 —— 手册里数字要对得齐 */
-.shot-date {
-  margin: 0;
-  font-size: 11px;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 展开开关：行内文字按钮，比 .text-btn 轻 —— 它长在文字流里，
-   白底描边那种「表单按钮」的分量会把它变成第二条主角 */
-.shot-toggle {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  min-height: 34px;
-  padding: 5px 6px;
-  font-size: 11px;
+  width: 100%;
+  min-height: var(--touch-min);
+  margin: 4px 0 0;
+  padding: 0;
   font-family: inherit;
-  letter-spacing: 0.04em;
+  text-align: left;
   color: var(--muted);
-  background: transparent;
+  background: none;
   border: 0;
   border-radius: var(--r-sm);
   cursor: pointer;
-  font-variant-numeric: tabular-nums;
-  transition: color var(--dur) var(--ease-io),
-    background var(--dur) var(--ease-io);
+  transition: color var(--dur) var(--ease-io), background var(--dur) var(--ease-io);
 }
 
-/* 热区：34 + 3 + 3 = 40。0.19b 会把整行做成触发区，这里先把按钮本身够到 40 */
-.shot-toggle::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
+.shot-meta.is-plain {
+  min-height: 0;
+  margin-top: 8px;
+  cursor: default;
+}
+
+/* 焦点圈往里收：整行贴边，往外画会被裁掉 */
+.shot-meta:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 @media (hover: hover) {
-  .shot-toggle:hover {
-    color: var(--text);
+  .shot-meta:not(.is-plain):hover {
     background: var(--ink-04);
   }
 }
 
-.shot-toggle:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+/* 触屏没有 hover，按下这一瞬间的反馈就是唯一提示 —— 必须给 */
+.shot-meta:not(.is-plain):active {
+  background: var(--ink-05);
 }
 
-/* 收起箭头：展开时转 180°。转的是 span 不是 button ——
-   button 上转会把文字一起倒过来 */
+/* 日期：小字号 + 等宽数字 —— 手册里数字要对得齐（0.19b 从 11 提到 12） */
+.shot-date {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 右侧提示：「n 条技巧 / 展开 / 收起」+ 箭头。
+   用主文字色而不是次要色：这一行里日期是事实、它是入口，两者角色不同 */
+.shot-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 收起箭头：展开时转 180°。转的是 span 不是整行 ——
+   转在行上会把日期和文字一起倒过来 */
 .shot-caret {
   display: inline-block;
   font-size: 10px;
@@ -894,13 +923,15 @@ input[type="file"]::file-selector-button {
   transform: rotate(180deg);
 }
 
-/* 展开区：描述 + 全部档位 + 技巧。一条细节线划开「默认可见」和「点开才看」 */
+/* 展开区：描述 + 全部档位 + 技巧。一条细节线划开「默认可见」和「点开才看」。
+   这条线比上面那条（照片/信息区的分界）短一档，只跨文字块 ——
+   页眉和章节用不同的线宽，层级才读得出来 */
 .shot-more {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 2px;
+  padding-top: 14px;
   border-top: 1px solid var(--border);
 }
 
