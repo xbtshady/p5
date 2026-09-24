@@ -59,7 +59,9 @@
   --ease-io: cubic-bezier(0.4, 0, 0.2, 1);
 
   /* ---------- 尺寸 ---------- */
-  --topbar-h: 56px;           /* 顶栏高（不含 1px 细节线），.feed-wrap 的 padding-top 读它 */
+  --topbar-h: 56px;           /* 顶栏高（不含 1px 细节线）。.topbar 自己读它算高度，
+                                 筛选抽屉读它算下滑位置。
+                                 ⚠️ 内容区**不要**再拿它补 padding-top —— sticky 已占位 */
   --gutter: 18px;             /* 页面左右留白 */
   /* 可点区域最小边长。iOS HIG 建议 44，但顶栏那三个键只隔 10px，
      44 的放大热区会互相盖住（后画的抢走重叠区）—— 40 是这里的上限。 */
@@ -660,9 +662,11 @@ input[type="file"]::file-selector-button {
   max-width: 560px;
   margin: 0 auto;
   padding: 0;
-  /* 顶栏是 sticky 的会盖住内容开头，这里补上它的高度 + 一点呼吸
-     （读同一个变量，改顶栏不用两处对数字） */
-  padding-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 14px);
+  /* ⚠️ 这里**不能**再加 --topbar-h：.topbar 是 sticky，sticky 元素依然占据文档流，
+     内容本来就在它下面。再补一次顶栏高度就是在顶栏下面凭空留 56px 空白
+     （0.19c 之前的值是 calc(var(--topbar-h) + ... + 14px)，量出来顶栏底部
+     到第一张照片隔了 70px）。这里只留一点呼吸 */
+  padding-top: 14px;
 }
 
 /* 错误提示是唯一还留在 feed-wrap 直下的文字块，给它自己的留白 */
@@ -672,13 +676,14 @@ input[type="file"]::file-selector-button {
 
 /* 新增页这种「表单页」的内容区：左右留白由这里统一给。
    底部要空出固定保存条那一块（--savebar-h）+ 30px 余量 ——
-   不留的话最后一组会被条盖住，而它正好是「AI 技巧」那一组 */
+   不留的话最后一组会被条盖住，而它正好是「AI 技巧」那一组。
+   顶部同理**不补 --topbar-h**（sticky 已经占位，见 .feed-wrap 的注释） */
 .form-wrap {
   width: 100%;
   max-width: 560px;
   margin: 0 auto;
   padding: 0 var(--gutter-r) 0 var(--gutter-l);
-  padding-top: calc(var(--topbar-h) + env(safe-area-inset-top, 0px) + 6px);
+  padding-top: 6px;
   padding-bottom: calc(var(--savebar-h) + 30px + env(safe-area-inset-bottom, 0px));
 }
 

@@ -609,10 +609,14 @@ P2.13 和 P2.14 单独决策，不在 0.19 默认做。
   缩到 189px 宽（因为 `flex-grow: 0` 不让它长回来）。
 - 让 `#app` 强制 `width: 100%` 可以长回来，但会改变桌面顶栏宽度（超出 0.19b 范围）。
 
-结论：**0.19b 不带 P1.7/P1.8**。卡片结构落地后，这两块要再起一版，
-先把 `body/#app` 的 flex-item 尺寸问题理顺（或者干脆把 flex 布局的 scope
-缩到只有登录页），再上 `content-visibility`。`css/style.css` 里 `.shot` 的注释
-也留了同一句话，防止以后照着旧版 REDESIGN 直接抄。
+结论：**0.19b 不带 P1.7/P1.8**。
+
+`body/#app` 的 flex-item 尺寸问题在 **0.19c 热修**里被顺带解决：
+`body.page-list` 改成 `display: block`，`#app` 恢复为块级盒子（宽度 = 视口），
+`flex-grow: 0` 导致的内容收窄不再存在。所以后续如果要上 `content-visibility`，
+不用再绕 `min-width: auto` 那条路；但 0.19c 这次只做这个结构修复，不重新引入 CV。
+
+`css/style.css` 里 `.shot` 的注释也留了同一句话，防止以后照着旧版 REDESIGN 直接抄。
 
 ## 十三、0.19c 里 P2.12 的处置
 
